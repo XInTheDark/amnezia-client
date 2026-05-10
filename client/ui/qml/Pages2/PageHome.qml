@@ -193,7 +193,7 @@ PageType {
 
                         Text {
                             Layout.alignment: Qt.AlignHCenter
-                            text: ConnectionController.pingText || "-- ms"
+                            text: ConnectionController.pingText.length > 0 ? ConnectionController.pingText : "-- ms"
                             font.family: "PT Root UI VF"
                             font.pixelSize: 13
                             font.weight: 500

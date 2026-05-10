@@ -59,6 +59,7 @@ MacOSPingSender::MacOSPingSender(const QHostAddress& source, QObject* parent)
   m_notifier = new QSocketNotifier(m_socket, QSocketNotifier::Read, this);
   connect(m_notifier, &QSocketNotifier::activated, this,
           &MacOSPingSender::socketReady);
+  m_valid = true;
 }
 
 MacOSPingSender::~MacOSPingSender() {
@@ -68,7 +69,15 @@ MacOSPingSender::~MacOSPingSender() {
   }
 }
 
+bool MacOSPingSender::isValid() { return m_valid; }
+
 void MacOSPingSender::sendPing(const QHostAddress& dest, quint16 sequence) {
+  if (!m_valid) {
+    logger.error() << "Attempted to send ping with invalid socket.";
+    emit criticalPingError();
+    return;
+  }
+
   quint32 ipv4dest = dest.toIPv4Address();
   struct sockaddr_in addr;
   bzero(&addr, sizeof(addr));
@@ -113,11 +122,37 @@ void MacOSPingSender::socketReady() {
     return;
   }
 
-  struct ip* ip = (struct ip*)packet;
-  int hlen = ip->ip_hl << 2;
-  struct icmp* icmp = (struct icmp*)(((char*)packet) + hlen);
+  const struct icmp* icmp = nullptr;
+  ssize_t icmpLength = rc;
 
-  if (icmp->icmp_type == ICMP_ECHOREPLY && icmp->icmp_id == identifier()) {
-    emit recvPing(htons(icmp->icmp_seq));
+  if (rc >= static_cast<ssize_t>(sizeof(struct ip))) {
+    struct ip* ip = (struct ip*)packet;
+    const int hlen = ip->ip_hl << 2;
+    if (ip->ip_v == 4 && hlen >= static_cast<int>(sizeof(struct ip)) &&
+        rc >= hlen + static_cast<int>(ICMP_MINLEN)) {
+      icmp = (struct icmp*)(((char*)packet) + hlen);
+      icmpLength = rc - hlen;
+    }
+  }
+
+  if (!icmp) {
+    if (rc < static_cast<ssize_t>(ICMP_MINLEN)) {
+      logger.error() << "Received short ICMP packet";
+      return;
+    }
+    icmp = (struct icmp*)packet;
+  }
+
+  if (icmpLength < static_cast<ssize_t>(ICMP_MINLEN)) {
+    logger.error() << "Received short ICMP payload";
+    return;
+  }
+
+  const bool identifierMatches = icmp->icmp_id == identifier();
+  const bool datagramSocketOwnsReplies = getuid() != 0;
+
+  if (icmp->icmp_type == ICMP_ECHOREPLY &&
+      (identifierMatches || datagramSocketOwnsReplies)) {
+    emit recvPing(ntohs(icmp->icmp_seq));
   }
 }

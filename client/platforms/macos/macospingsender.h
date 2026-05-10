@@ -17,6 +17,7 @@ class MacOSPingSender final : public PingSender {
   MacOSPingSender(const QHostAddress& source, QObject* parent = nullptr);
   ~MacOSPingSender();
 
+  bool isValid() override;
   void sendPing(const QHostAddress& dest, quint16 sequence) override;
 
  private slots:
@@ -25,6 +26,7 @@ class MacOSPingSender final : public PingSender {
  private:
   QSocketNotifier* m_notifier = nullptr;
   int m_socket = -1;
+  bool m_valid = false;
 };
 
 #endif  // MACOSPINGSENDER_H
