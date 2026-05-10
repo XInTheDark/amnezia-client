@@ -14,7 +14,7 @@ sanitize_productbuild_package() {
     local tmp_dir
     tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/amnezia-productbuild.XXXXXX")
 
-    pkgutil --expand-full "$package_file" "$tmp_dir/expanded"
+    pkgutil --expand "$package_file" "$tmp_dir/expanded"
     find "$tmp_dir/expanded" -path "*/PackageInfo" -type f -exec \
         perl -0pi -e 's#\n\s*<bundle path="[^"]*"[^/]*/>##sg; s#\n\s*<(bundle-version|upgrade-bundle|strict-identifier|relocate)>.*?</\1>##sg; s#\n\s*<(update-bundle|atomic-update-bundle)/>##sg' {} +
     if [[ -f "$tmp_dir/expanded/Distribution" ]]; then
