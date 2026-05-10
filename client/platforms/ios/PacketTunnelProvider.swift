@@ -91,8 +91,8 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
 
             guard hasMeaningfulChange, let proto = self.protoType else { return }
 
-            // WireGuard/AWG and OpenVPN manages network changes internally in its own adapter.
-            if proto == .wireguard || proto == .openvpn {
+            // WireGuard/AWG manages network changes internally in its own adapter.
+            if proto == .wireguard {
                 return
             }
 
@@ -287,7 +287,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         case .openvpn:
             handleOpenVPNStatusMessage(messageData, completionHandler: completionHandler)
         case .xray:
-            break;
+            completionHandler?(nil)
         }
     }
   

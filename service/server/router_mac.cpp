@@ -6,6 +6,11 @@
 
 #include <core/utils/networkUtilities.h>
 
+namespace
+{
+    constexpr int kDnsFlushTimeoutMs = 5000;
+}
+
 RouterMac &RouterMac::Instance()
 {
     static RouterMac s;
@@ -29,15 +34,14 @@ bool RouterMac::routeAdd(const QString &ipWithSubnet, const QString &gw)
     QString cmd;
     if (mask == "255.255.255.255") {
         cmd = QString("route add -host %1 %2").arg(ip).arg(gw);
-    }
-    else {
+    } else {
         cmd = QString("route add -net %1 %2 %3").arg(ip).arg(gw).arg(mask);
     }
 
     QStringList parts = cmd.split(" ");
 
     int argc = parts.size();
-    char **argv = new char*[argc];
+    char **argv = new char *[argc];
 
     for (int i = 0; i < argc; i++) {
         argv[i] = new char[parts.at(i).toStdString().length() + 1];
@@ -46,10 +50,10 @@ bool RouterMac::routeAdd(const QString &ipWithSubnet, const QString &gw)
 
     // TODO refactor
     mainRouteIface(argc, argv);
-    m_addedRoutes.append({ipWithSubnet, gw});
+    m_addedRoutes.append({ ipWithSubnet, gw });
 
     for (int i = 0; i < argc; i++) {
-        delete [] argv[i];
+        delete[] argv[i];
     }
     delete[] argv;
     return true;
@@ -58,8 +62,9 @@ bool RouterMac::routeAdd(const QString &ipWithSubnet, const QString &gw)
 int RouterMac::routeAddList(const QString &gw, const QStringList &ips)
 {
     int cnt = 0;
-    for (const QString &ip: ips) {
-        if (routeAdd(ip, gw)) cnt++;
+    for (const QString &ip : ips) {
+        if (routeAdd(ip, gw))
+            cnt++;
     }
     return cnt;
 }
@@ -67,8 +72,9 @@ int RouterMac::routeAddList(const QString &gw, const QStringList &ips)
 bool RouterMac::clearSavedRoutes()
 {
     int cnt = 0;
-    for (const Route &r: m_addedRoutes) {
-        if (routeDelete(r.dst, r.gw)) cnt++;
+    for (const Route &r : m_addedRoutes) {
+        if (routeDelete(r.dst, r.gw))
+            cnt++;
     }
     bool ret = (cnt == m_addedRoutes.count());
     m_addedRoutes.clear();
@@ -97,15 +103,14 @@ bool RouterMac::routeDelete(const QString &ipWithSubnet, const QString &gw)
     QString cmd;
     if (mask == "255.255.255.255") {
         cmd = QString("route delete -host %1 %2").arg(ip).arg(gw);
-    }
-    else {
+    } else {
         cmd = QString("route delete -net %1 %2 %3").arg(ip).arg(gw).arg(mask);
     }
 
     QStringList parts = cmd.split(" ");
 
     int argc = parts.size();
-    char **argv = new char*[argc];
+    char **argv = new char *[argc];
 
     for (int i = 0; i < argc; i++) {
         argv[i] = new char[parts.at(i).toStdString().length() + 1];
@@ -115,7 +120,7 @@ bool RouterMac::routeDelete(const QString &ipWithSubnet, const QString &gw)
     mainRouteIface(argc, argv);
 
     for (int i = 0; i < argc; i++) {
-        delete [] argv[i];
+        delete[] argv[i];
     }
     delete[] argv;
     return true;
@@ -124,13 +129,15 @@ bool RouterMac::routeDelete(const QString &ipWithSubnet, const QString &gw)
 bool RouterMac::routeDeleteList(const QString &gw, const QStringList &ips)
 {
     int cnt = 0;
-    for (const QString &ip: ips) {
-        if (routeDelete(ip, gw)) cnt++;
+    for (const QString &ip : ips) {
+        if (routeDelete(ip, gw))
+            cnt++;
     }
     return cnt;
 }
 
-bool RouterMac::createTun(const QString &dev, const QString &subnet) {
+bool RouterMac::createTun(const QString &dev, const QString &subnet)
+{
     qDebug().noquote() << "createTun start";
 
     QProcess process;
@@ -138,13 +145,10 @@ bool RouterMac::createTun(const QString &dev, const QString &subnet) {
 
     commands << "ifconfig" << dev << "inet" << subnet << subnet << "up";
     process.start("sudo", commands);
-    if (!process.waitForStarted(1000))
-    {
+    if (!process.waitForStarted(1000)) {
         qDebug().noquote() << "Could not start activate tun device!\n";
         return false;
-    }
-    else if (!process.waitForFinished(2000))
-    {
+    } else if (!process.waitForFinished(2000)) {
         qDebug().noquote() << "Could not activate tun device!\n";
         return false;
     }
@@ -153,16 +157,17 @@ bool RouterMac::createTun(const QString &dev, const QString &subnet) {
     return true;
 }
 
-bool RouterMac::updateResolvers(const QString& ifname, const QList<QHostAddress>& resolvers)
+bool RouterMac::updateResolvers(const QString &ifname, const QList<QHostAddress> &resolvers)
 {
     return m_dnsUtil->updateResolvers(ifname, resolvers);
 }
 
-bool RouterMac::restoreResolvers() {
+bool RouterMac::restoreResolvers()
+{
     return m_dnsUtil->restoreResolvers();
 }
 
-bool RouterMac::routeAddXray(const QString& ifname, const QString& gateway)
+bool RouterMac::routeAddXray(const QString &ifname, const QString &gateway)
 {
     if (ifname.isEmpty() || gateway.isEmpty()) {
         qWarning().noquote() << "routeAddXray: invalid iface/gateway:" << ifname << gateway;
@@ -173,14 +178,14 @@ bool RouterMac::routeAddXray(const QString& ifname, const QString& gateway)
     QStringList parts = cmd.split(" ");
 
     int argc = parts.size();
-    char **argv = new char*[argc];
+    char **argv = new char *[argc];
     for (int i = 0; i < argc; i++) {
         argv[i] = new char[parts.at(i).toStdString().length() + 1];
         strcpy(argv[i], parts.at(i).toStdString().c_str());
     }
     mainRouteIface(argc, argv);
     for (int i = 0; i < argc; i++) {
-        delete [] argv[i];
+        delete[] argv[i];
     }
     delete[] argv;
 
@@ -188,14 +193,14 @@ bool RouterMac::routeAddXray(const QString& ifname, const QString& gateway)
     parts = cmd.split(" ");
 
     argc = parts.size();
-    argv = new char*[argc];
+    argv = new char *[argc];
     for (int i = 0; i < argc; i++) {
         argv[i] = new char[parts.at(i).toStdString().length() + 1];
         strcpy(argv[i], parts.at(i).toStdString().c_str());
     }
     mainRouteIface(argc, argv);
     for (int i = 0; i < argc; i++) {
-        delete [] argv[i];
+        delete[] argv[i];
     }
     delete[] argv;
 
@@ -203,7 +208,7 @@ bool RouterMac::routeAddXray(const QString& ifname, const QString& gateway)
     return true;
 }
 
-bool RouterMac::routeDeleteXray(const QString& ifname, const QString& gateway)
+bool RouterMac::routeDeleteXray(const QString &ifname, const QString &gateway)
 {
     if (ifname.isEmpty()) {
         return false;
@@ -218,14 +223,14 @@ bool RouterMac::routeDeleteXray(const QString& ifname, const QString& gateway)
     QStringList parts = cmd.split(" ");
 
     int argc = parts.size();
-    char **argv = new char*[argc];
+    char **argv = new char *[argc];
     for (int i = 0; i < argc; i++) {
         argv[i] = new char[parts.at(i).toStdString().length() + 1];
         strcpy(argv[i], parts.at(i).toStdString().c_str());
     }
     mainRouteIface(argc, argv);
     for (int i = 0; i < argc; i++) {
-        delete [] argv[i];
+        delete[] argv[i];
     }
     delete[] argv;
 
@@ -237,14 +242,14 @@ bool RouterMac::routeDeleteXray(const QString& ifname, const QString& gateway)
     parts = cmd.split(" ");
 
     argc = parts.size();
-    argv = new char*[argc];
+    argv = new char *[argc];
     for (int i = 0; i < argc; i++) {
         argv[i] = new char[parts.at(i).toStdString().length() + 1];
         strcpy(argv[i], parts.at(i).toStdString().c_str());
     }
     mainRouteIface(argc, argv);
     for (int i = 0; i < argc; i++) {
-        delete [] argv[i];
+        delete[] argv[i];
     }
     delete[] argv;
 
@@ -266,8 +271,13 @@ bool RouterMac::flushDns()
     p.setProcessChannelMode(QProcess::MergedChannels);
 
     p.start("killall", QStringList() << "-HUP" << "mDNSResponder");
-    p.waitForFinished();
-    
+    if (!p.waitForFinished(kDnsFlushTimeoutMs)) {
+        p.kill();
+        p.waitForFinished(1000);
+        qWarning().noquote() << "Timeout while flushing DNS";
+        return false;
+    }
+
     qDebug().noquote() << "OUTPUT killall -HUP mDNSResponder: " + p.readAll();
     return true;
 }

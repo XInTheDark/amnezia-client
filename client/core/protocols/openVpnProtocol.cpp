@@ -1,17 +1,23 @@
 #include <QCoreApplication>
 #include <QFileInfo>
+#include <QNetworkInterface>
 #include <QProcess>
 #include <QRandomGenerator>
 #include <QTcpServer>
 #include <QTcpSocket>
-#include <QNetworkInterface>
 
+#include "core/protocols/protocolUtils.h"
 #include "core/utils/networkUtilities.h"
+#include "core/utils/utilities.h"
 #include "ipc.h"
 #include "openVpnProtocol.h"
-#include "core/utils/utilities.h"
-#include "core/protocols/protocolUtils.h"
 #include "version.h"
+
+namespace
+{
+    constexpr int kRouteProbeTimeoutMs = 5000;
+    constexpr int kServiceReplyTimeoutMs = 5000;
+}
 
 OpenVpnProtocol::OpenVpnProtocol(const QJsonObject &configuration, QObject *parent) : VpnProtocol(configuration, parent)
 {
@@ -59,7 +65,7 @@ void OpenVpnProtocol::stop()
 #if defined(Q_OS_WIN) || defined(Q_OS_LINUX) || defined(Q_OS_MACOS)
     IpcClient::withInterface([](QSharedPointer<IpcInterfaceReplica> iface) {
         QRemoteObjectPendingReply<bool> reply = iface->disableKillSwitch();
-        if (!reply.waitForFinished(1000) && !reply.returnValue()) {
+        if (!reply.waitForFinished(kServiceReplyTimeoutMs) || !reply.returnValue()) {
             qWarning() << "OpenVpnProtocol::stop(): Failed to disable killswitch";
         }
     });
@@ -70,24 +76,24 @@ void OpenVpnProtocol::stop()
 
 ErrorCode OpenVpnProtocol::prepare()
 {
-    return IpcClient::withInterface([](QSharedPointer<IpcInterfaceReplica> iface) {
-        QRemoteObjectPendingReply<QStringList> listReply = iface->getTapList();
-        if (!listReply.waitForFinished(1000)) {
-            return ErrorCode::InternalError;
-        }
+    return IpcClient::withInterface(
+            [](QSharedPointer<IpcInterfaceReplica> iface) {
+                QRemoteObjectPendingReply<QStringList> listReply = iface->getTapList();
+                if (!listReply.waitForFinished(1000)) {
+                    return ErrorCode::InternalError;
+                }
 
-        QStringList list = listReply.returnValue();
-        if (list.empty()) {
-            QRemoteObjectPendingReply<bool> installReply = iface->checkAndInstallDriver();
-            if (!installReply.waitForFinished() || !installReply.returnValue()) {
-                return ErrorCode::OpenVpnTapAdapterError;
-            }
-        }
+                QStringList list = listReply.returnValue();
+                if (list.empty()) {
+                    QRemoteObjectPendingReply<bool> installReply = iface->checkAndInstallDriver();
+                    if (!installReply.waitForFinished(kServiceReplyTimeoutMs) || !installReply.returnValue()) {
+                        return ErrorCode::OpenVpnTapAdapterError;
+                    }
+                }
 
-        return ErrorCode::NoError;
-    }, [] () {
-        return ErrorCode::AmneziaServiceConnectionFailed;
-    });
+                return ErrorCode::NoError;
+            },
+            []() { return ErrorCode::AmneziaServiceConnectionFailed; });
 }
 
 void OpenVpnProtocol::killOpenVpnProcess()
@@ -179,7 +185,7 @@ ErrorCode OpenVpnProtocol::start()
     const ErrorCode res = IpcClient::withInterface([&](QSharedPointer<IpcInterfaceReplica> iface) {
         QString ip = NetworkUtilities::getIPAddress(m_configData.value(amnezia::configKey::hostName).toString());
         QRemoteObjectPendingReply<bool> reply = iface->addKillSwitchAllowedRange(QStringList(ip));
-        if (!reply.waitForFinished(1000) || !reply.returnValue()) {
+        if (!reply.waitForFinished(kServiceReplyTimeoutMs) || !reply.returnValue()) {
             return ErrorCode::AmneziaServiceConnectionFailed;
         }
         return ErrorCode::NoError;
@@ -198,7 +204,10 @@ ErrorCode OpenVpnProtocol::start()
             QStringList() << "-n"
                           << "get"
                           << "default");
-    p.waitForFinished();
+    if (!p.waitForFinished(kRouteProbeTimeoutMs)) {
+        p.kill();
+        p.waitForFinished(1000);
+    }
     QString s = p.readAll();
 
     QRegularExpression rx(R"(gateway:\s*(\d+\.\d+\.\d+\.\d+))");
@@ -346,8 +355,7 @@ void OpenVpnProtocol::updateVpnGateway(const QString &line)
                 IpcClient::withInterface([&](QSharedPointer<IpcInterfaceReplica> iface) {
                     QList<QNetworkInterface> netInterfaces = QNetworkInterface::allInterfaces();
                     for (int i = 0; i < netInterfaces.size(); i++) {
-                        for (int j=0; j < netInterfaces.at(i).addressEntries().size(); j++)
-                        {
+                        for (int j = 0; j < netInterfaces.at(i).addressEntries().size(); j++) {
                             // killSwitch toggle
                             if (m_vpnLocalAddress == netInterfaces.at(i).addressEntries().at(j).ip().toString()) {
                                 if (QVariant(m_configData.value(configKey::killSwitchOption).toString()).toBool()) {
@@ -356,7 +364,8 @@ void OpenVpnProtocol::updateVpnGateway(const QString &line)
                                 m_configData.insert("vpnAdapterIndex", netInterfaces.at(i).index());
                                 m_configData.insert("vpnGateway", m_vpnGateway);
                                 m_configData.insert("vpnServer",
-                                                    NetworkUtilities::getIPAddress(m_configData.value(amnezia::configKey::hostName).toString()));
+                                                    NetworkUtilities::getIPAddress(
+                                                            m_configData.value(amnezia::configKey::hostName).toString()));
                                 iface->enablePeerTraffic(m_configData);
                             }
                         }
@@ -366,11 +375,12 @@ void OpenVpnProtocol::updateVpnGateway(const QString &line)
 #if defined(Q_OS_LINUX) || defined(Q_OS_MACOS)
                 // killSwitch toggle
                 if (QVariant(m_configData.value(configKey::killSwitchOption).toString()).toBool()) {
-                    m_configData.insert("vpnServer",
-                                        NetworkUtilities::getIPAddress(m_configData.value(amnezia::configKey::hostName).toString()));
+                    m_configData.insert(
+                            "vpnServer",
+                            NetworkUtilities::getIPAddress(m_configData.value(amnezia::configKey::hostName).toString()));
                     IpcClient::withInterface([&](QSharedPointer<IpcInterfaceReplica> iface) {
                         QRemoteObjectPendingReply<bool> reply = iface->enableKillSwitch(m_configData, 0);
-                        if (!reply.waitForFinished(1000) || !reply.returnValue()) {
+                        if (!reply.waitForFinished(kServiceReplyTimeoutMs) || !reply.returnValue()) {
                             qWarning() << "OpenVpnProtocol::updateVpnGateway(): Failed to enable killswitch";
                         }
                     });

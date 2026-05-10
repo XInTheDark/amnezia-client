@@ -1,26 +1,26 @@
 #ifndef VPNCONNECTION_H
 #define VPNCONNECTION_H
 
-#include <QObject>
 #include <QMetaObject>
-#include <QString>
-#include <QScopedPointer>
+#include <QObject>
 #include <QRemoteObjectNode>
+#include <QScopedPointer>
+#include <QString>
 #include <QTimer>
 
 #include "core/protocols/vpnProtocol.h"
+#include "core/repositories/secureAppSettingsRepository.h"
+#include "core/repositories/secureServersRepository.h"
+#include "core/utils/commonStructs.h"
 #include "core/utils/errorCodes.h"
 #include "core/utils/routeModes.h"
-#include "core/utils/commonStructs.h"
-#include "core/repositories/secureServersRepository.h"
-#include "core/repositories/secureAppSettingsRepository.h"
 
 #ifdef AMNEZIA_DESKTOP
-#include "core/utils/ipcClient.h"
+    #include "core/utils/ipcClient.h"
 #endif
 
 #ifdef Q_OS_ANDROID
-#include "core/protocols/androidVpnProtocol.h"
+    #include "core/protocols/androidVpnProtocol.h"
 #endif
 
 using namespace amnezia;
@@ -30,7 +30,8 @@ class VpnConnection : public QObject
     Q_OBJECT
 
 public:
-    explicit VpnConnection(SecureServersRepository* serversRepository, SecureAppSettingsRepository* appSettingsRepository, QObject* parent = nullptr);
+    explicit VpnConnection(SecureServersRepository *serversRepository,
+                           SecureAppSettingsRepository *appSettingsRepository, QObject *parent = nullptr);
     ~VpnConnection() override;
 
     static QString bytesPerSecToText(quint64 bytes);
@@ -48,7 +49,7 @@ public:
 #endif
 
 public slots:
-    void setRepositories(SecureServersRepository* serversRepository, SecureAppSettingsRepository* appSettingsRepository);
+    void setRepositories(SecureServersRepository *serversRepository, SecureAppSettingsRepository *appSettingsRepository);
     void connectToVpn(int serverIndex, DockerContainer container, const QJsonObject &vpnConfiguration);
     void reconnectToVpn();
     void disconnectFromVpn();
@@ -73,8 +74,8 @@ protected:
     QSharedPointer<VpnProtocol> m_vpnProtocol;
 
 private:
-    SecureServersRepository* m_serversRepository;
-    SecureAppSettingsRepository* m_appSettingsRepository;
+    SecureServersRepository *m_serversRepository;
+    SecureAppSettingsRepository *m_appSettingsRepository;
 
     QJsonObject m_vpnConfiguration;
     QJsonObject m_routeMode;
@@ -82,20 +83,23 @@ private:
 
     // Only for iOS for now, check counters
     QTimer m_checkTimer;
+    QTimer m_reconnectTimeoutTimer;
 
 #ifdef Q_OS_ANDROID
-   AndroidVpnProtocol* androidVpnProtocol = nullptr;
+    AndroidVpnProtocol *androidVpnProtocol = nullptr;
 
-   AndroidVpnProtocol* createDefaultAndroidVpnProtocol();
-   void createAndroidConnections();
+    AndroidVpnProtocol *createDefaultAndroidVpnProtocol();
+    void createAndroidConnections();
 #endif
 
-   Vpn::ConnectionState m_connectionState;
+    Vpn::ConnectionState m_connectionState = Vpn::ConnectionState::Disconnected;
+    bool m_reconnectInProgress = false;
+    bool m_reconnectRestarting = false;
 
-   void createProtocolConnections();
+    void createProtocolConnections();
 
-   void appendSplitTunnelingConfig();
-   void appendKillSwitchConfig();
+    void appendSplitTunnelingConfig();
+    void appendKillSwitchConfig();
 };
 
 #endif // VPNCONNECTION_H

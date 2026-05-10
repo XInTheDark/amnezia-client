@@ -8,20 +8,20 @@
 #include <QLocalServer>
 #include <QLocalSocket>
 #include <QObject>
+#include <QProcess>
 #include <QRemoteObjectHost>
 #include <QRemoteObjectNode>
 #include <QString>
 #include <QStringList>
 
+#include "killswitch.h"
 #include "logger.h"
 #include "router.h"
-#include "killswitch.h"
 #include "xray.h"
 
 #ifdef Q_OS_WIN
     #include "tapcontroller_win.h"
 #endif
-
 
 IpcServer::IpcServer(QObject *parent) : IpcInterfaceSource(parent)
 {
@@ -34,34 +34,44 @@ int IpcServer::createPrivilegedProcess()
     qDebug() << "IpcServer::createPrivilegedProcess";
 #endif
 
-    m_localpid++;
+    const int localPid = ++m_localpid;
 
     ProcessDescriptor pd(this);
 
     pd.localServer->setSocketOptions(QLocalServer::WorldAccessOption);
 
-    if (!pd.localServer->listen(amnezia::getIpcProcessUrl(m_localpid))) {
+    if (!pd.localServer->listen(amnezia::getIpcProcessUrl(localPid))) {
         qDebug() << QString("Unable to start the server: %1.").arg(pd.localServer->errorString());
         return -1;
     }
 
     // Make sure any connections are handed to QtRO
-    QObject::connect(pd.localServer.data(), &QLocalServer::newConnection, this, [pd]() {
+    QLocalServer *localServer = pd.localServer.data();
+    QRemoteObjectHost *serverNode = pd.serverNode.data();
+    IpcServerProcess *ipcProcess = pd.ipcProcess.data();
+
+    QObject::connect(localServer, &QLocalServer::newConnection, this, [localServer, serverNode, ipcProcess]() {
         qDebug() << "IpcServer new connection";
-        if (pd.serverNode) {
-            pd.serverNode->addHostSideConnection(pd.localServer->nextPendingConnection());
-            pd.serverNode->enableRemoting(pd.ipcProcess.data());
+        if (serverNode && localServer && ipcProcess) {
+            serverNode->addHostSideConnection(localServer->nextPendingConnection());
+            serverNode->enableRemoting(ipcProcess);
         }
     });
 
-    QObject::connect(pd.serverNode.data(), &QRemoteObjectHost::error, this,
-                     [pd](QRemoteObjectNode::ErrorCode errorCode) { qDebug() << "QRemoteObjectHost::error" << errorCode; });
+    QObject::connect(serverNode, &QRemoteObjectHost::error, this, [](QRemoteObjectNode::ErrorCode errorCode) {
+        qDebug() << "QRemoteObjectHost::error" << errorCode;
+    });
 
-    QObject::connect(pd.serverNode.data(), &QRemoteObjectHost::destroyed, this, [pd]() { qDebug() << "QRemoteObjectHost::destroyed"; });
+    QObject::connect(serverNode, &QRemoteObjectHost::destroyed, this,
+                     []() { qDebug() << "QRemoteObjectHost::destroyed"; });
+    QObject::connect(ipcProcess, &IpcServerProcess::finished, this, [this, localPid](int, QProcess::ExitStatus) {
+        qDebug() << "Removing finished privileged process descriptor" << localPid;
+        m_processes.remove(localPid);
+    });
 
-    m_processes.insert(m_localpid, pd);
+    m_processes.insert(localPid, pd);
 
-    return m_localpid;
+    return localPid;
 }
 
 int IpcServer::routeAddList(const QString &gw, const QStringList &ips)
@@ -221,7 +231,7 @@ void IpcServer::setLogsEnabled(bool enabled)
     }
 }
 
-bool IpcServer::startNetworkCheck(const QString& serverIpv4Gateway, const QString& deviceIpv4Address)
+bool IpcServer::startNetworkCheck(const QString &serverIpv4Gateway, const QString &deviceIpv4Address)
 {
 #ifdef MZ_DEBUG
     qDebug() << "IpcServer::startNetworkCheck";
@@ -304,7 +314,7 @@ bool IpcServer::refreshKillSwitch(bool enabled)
     return KillSwitch::instance()->refresh(enabled);
 }
 
-bool IpcServer::xrayStart(const QString& cfg)
+bool IpcServer::xrayStart(const QString &cfg)
 {
 #ifdef MZ_DEBUG
     qDebug() << "IpcServer::xrayStart";

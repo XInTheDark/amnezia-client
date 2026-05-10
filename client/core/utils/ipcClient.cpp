@@ -3,13 +3,19 @@
 #include <QRemoteObjectNode>
 #include <QtNetwork/qlocalsocket.h>
 
+namespace
+{
+    constexpr int kIpcReplyTimeoutMs = 5000;
+    constexpr int kProcessReplicaTimeoutMs = 5000;
+}
+
 IpcClient::IpcClient(QObject *parent) : QObject(parent)
 {
     m_node.connectToNode(QUrl("local:" + amnezia::getIpcServiceUrl()));
     m_interface.reset(m_node.acquire<IpcInterfaceReplica>());
 }
 
-IpcClient& IpcClient::Instance()
+IpcClient &IpcClient::Instance()
 {
     thread_local IpcClient ipcClient;
     return ipcClient;
@@ -34,41 +40,38 @@ QSharedPointer<IpcInterfaceReplica> IpcClient::Interface()
 
 QSharedPointer<IpcProcessInterfaceReplica> IpcClient::CreatePrivilegedProcess()
 {
-    return withInterface([](QSharedPointer<IpcInterfaceReplica> &iface) -> QSharedPointer<IpcProcessInterfaceReplica> {
-        auto createPrivilegedProcess = iface->createPrivilegedProcess();
-        if (!createPrivilegedProcess.waitForFinished()) {
-            qCritical() << "Failed to create privileged process";
-            return nullptr;
-        }
+    return withInterface(
+            [](QSharedPointer<IpcInterfaceReplica> iface) -> QSharedPointer<IpcProcessInterfaceReplica> {
+                auto createPrivilegedProcess = iface->createPrivilegedProcess();
+                if (!createPrivilegedProcess.waitForFinished(kIpcReplyTimeoutMs)) {
+                    qCritical() << "Failed to create privileged process";
+                    return nullptr;
+                }
 
-        const int pid = createPrivilegedProcess.returnValue();
+                const int pid = createPrivilegedProcess.returnValue();
 
-        auto* node = new QRemoteObjectNode();
-        node->connectToNode(QUrl(QString("local:%1").arg(amnezia::getIpcProcessUrl(pid))));
+                auto *node = new QRemoteObjectNode();
+                node->connectToNode(QUrl(QString("local:%1").arg(amnezia::getIpcProcessUrl(pid))));
 
-        QSharedPointer<IpcProcessInterfaceReplica> rep(
-            node->acquire<IpcProcessInterfaceReplica>(),
-            [node] (IpcProcessInterfaceReplica *ptr) {
-                delete ptr;
-                node->deleteLater();
-            }
-        );
-        if (rep.isNull()) {
-            qCritical() << "IpcClient::CreatePrivilegedProcess(): Failed to acquire replica";
-            return nullptr;
-        }
-        if (!rep->waitForSource()) {
-            qCritical() << "IpcClient::CreatePrivilegedProcess(): Failed to initialize replica";
-            return nullptr;
-        }
-        if (!rep->isReplicaValid()) {
-            qCritical() << "IpcClient::CreatePrivilegedProcess(): Replica is invalid";
-            return nullptr;
-        }
+                QSharedPointer<IpcProcessInterfaceReplica> rep(node->acquire<IpcProcessInterfaceReplica>(),
+                                                               [node](IpcProcessInterfaceReplica *ptr) {
+                                                                   delete ptr;
+                                                                   node->deleteLater();
+                                                               });
+                if (rep.isNull()) {
+                    qCritical() << "IpcClient::CreatePrivilegedProcess(): Failed to acquire replica";
+                    return nullptr;
+                }
+                if (!rep->waitForSource(kProcessReplicaTimeoutMs)) {
+                    qCritical() << "IpcClient::CreatePrivilegedProcess(): Failed to initialize replica";
+                    return nullptr;
+                }
+                if (!rep->isReplicaValid()) {
+                    qCritical() << "IpcClient::CreatePrivilegedProcess(): Replica is invalid";
+                    return nullptr;
+                }
 
-        return rep;
-    },
-    []() -> QSharedPointer<IpcProcessInterfaceReplica> {
-        return nullptr;
-    });
+                return rep;
+            },
+            []() -> QSharedPointer<IpcProcessInterfaceReplica> { return nullptr; });
 }

@@ -1,35 +1,31 @@
 #include <QCoreApplication>
 #include <QDebug>
 #include <QDir>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QProcess>
 #include <QRandomGenerator>
 #include <QRegularExpression>
 #include <QStandardPaths>
 #include <QUrl>
-#include <QJsonDocument>
-#include <QJsonObject>
 
 #include "core/utils/utilities.h"
 
+namespace
+{
+    constexpr int kProcessProbeTimeoutMs = 3000;
+}
+
 #ifdef Q_OS_WINDOWS
-QString printErrorMessage(DWORD errorCode) {
+QString printErrorMessage(DWORD errorCode)
+{
     LPVOID lpMsgBuf;
 
-    DWORD dwFlags = FORMAT_MESSAGE_ALLOCATE_BUFFER |
-                    FORMAT_MESSAGE_FROM_SYSTEM |
-                    FORMAT_MESSAGE_IGNORE_INSERTS;
+    DWORD dwFlags = FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS;
 
     DWORD dwLanguageId = MAKELANGID(LANG_ENGLISH, SUBLANG_ENGLISH_US);
 
-    FormatMessageW(
-        dwFlags,
-        NULL,
-        errorCode,
-        dwLanguageId,
-        (LPWSTR)&lpMsgBuf,
-        0,
-        NULL
-        );
+    FormatMessageW(dwFlags, NULL, errorCode, dwLanguageId, (LPWSTR)&lpMsgBuf, 0, NULL);
 
     QString errorMsg = QString::fromWCharArray((LPCWSTR)lpMsgBuf);
     LocalFree(lpMsgBuf);
@@ -201,7 +197,11 @@ bool Utils::processIsRunning(const QString &fileName, const bool fullFlag)
     arguments << fileName;
     process.setProcessChannelMode(QProcess::MergedChannels);
     process.start("pgrep", arguments);
-    process.waitForFinished();
+    if (!process.waitForFinished(kProcessProbeTimeoutMs)) {
+        process.kill();
+        process.waitForFinished(1000);
+        return false;
+    }
     if (process.exitStatus() == QProcess::NormalExit) {
         if (fullFlag) {
             return (process.readLine().toUInt() > 0);
@@ -237,12 +237,14 @@ bool Utils::killProcessByName(const QString &name)
                         success = true;
                     } else {
                         DWORD error = GetLastError();
-                        qCritical() << "Can't terminate process" << exeFile << "(PID:" << pe32.th32ProcessID << "). Error:" << printErrorMessage(error);
+                        qCritical() << "Can't terminate process" << exeFile << "(PID:" << pe32.th32ProcessID
+                                    << "). Error:" << printErrorMessage(error);
                     }
                     CloseHandle(hProcess);
                 } else {
                     DWORD error = GetLastError();
-                    qCritical() << "Can't open process for termination" << exeFile << "(PID:" << pe32.th32ProcessID << "). Error:" << printErrorMessage(error);
+                    qCritical() << "Can't open process for termination" << exeFile << "(PID:" << pe32.th32ProcessID
+                                << "). Error:" << printErrorMessage(error);
                 }
             }
         } while (Process32NextW(hSnapshot, &pe32));
@@ -331,14 +333,17 @@ void Utils::logException(const std::exception &e)
         std::rethrow_if_nested(e);
     } catch (const std::exception &nested) {
         logException(nested);
-    } catch (...) {}
+    } catch (...) {
+    }
 }
 
 void Utils::logException(const std::exception_ptr &eptr)
 {
     try {
-        if (eptr) std::rethrow_exception(eptr);
+        if (eptr)
+            std::rethrow_exception(eptr);
     } catch (const std::exception &e) {
         logException(e);
-    } catch (...) {}
+    } catch (...) {
+    }
 }
