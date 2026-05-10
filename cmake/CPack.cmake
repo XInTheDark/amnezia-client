@@ -40,7 +40,7 @@ list(APPEND CPACK_WIX_EXTENSIONS    "WixToolset.Util.wixext")
 
 # === CPack productbuild generator settings ===
 set(CPACK_PRODUCTBUILD_IDENTIFIER       org.amneziavpn)
-set(CPACK_PREFLIGHT_AMNEZIAVPN_SCRIPT   ${CMAKE_SOURCE_DIR}/deploy/data/macos/post_uninstall.sh)
+set(CPACK_PREFLIGHT_AMNEZIAVPN_SCRIPT   ${CMAKE_SOURCE_DIR}/deploy/data/macos/pre_install.sh)
 set(CPACK_POSTFLIGHT_AMNEZIAVPN_SCRIPT  ${CMAKE_SOURCE_DIR}/deploy/data/macos/post_install.sh)
 set(CPACK_POSTFLIGHT_UNINSTALL_SCRIPT   ${CMAKE_SOURCE_DIR}/deploy/data/macos/post_uninstall.sh)
 # provide custom CPack.distribution.dist.in

@@ -9,6 +9,22 @@ run_traced() {
     { set +o xtrace; } 2>/dev/null
 }
 
+sanitize_productbuild_package() {
+    local package_file="$1"
+    local tmp_dir
+    tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/amnezia-productbuild.XXXXXX")
+
+    pkgutil --expand-full "$package_file" "$tmp_dir/expanded"
+    find "$tmp_dir/expanded" -path "*/PackageInfo" -type f -exec \
+        perl -0pi -e 's#\n\s*<bundle path="[^"]*"[^/]*/>##sg; s#\n\s*<(bundle-version|upgrade-bundle|strict-identifier|relocate)>.*?</\1>##sg; s#\n\s*<(update-bundle|atomic-update-bundle)/>##sg' {} +
+    if [[ -f "$tmp_dir/expanded/Distribution" ]]; then
+        perl -0pi -e 's#\n\s*<bundle-version>.*?</bundle-version>##sg; s#\n\s*<bundle-version/>##sg' "$tmp_dir/expanded/Distribution"
+    fi
+    pkgutil --flatten "$tmp_dir/expanded" "$tmp_dir/package.pkg"
+    mv -f "$tmp_dir/package.pkg" "$package_file"
+    rm -rf "$tmp_dir"
+}
+
 all_abis_set="arm64-v8a armeabi-v7a x86_64 x86"
 get_abi_folder() {
     case $1 in
@@ -216,6 +232,18 @@ if [ -z "$no_installers" ]; then
         args=()
         [[ "$installer" == IFW ]] && args+=(-D "QTIFWDIR=$QIF_ROOT_PATH")
 
-        (cd "$BUILD_PATH" && run_traced cpack -G "$installer" "${args[@]}")
+        if [[ "$installer" == productbuild ]]; then
+            package_dir=$(mktemp -d "${TMPDIR:-/tmp}/amnezia-cpack.XXXXXX")
+            (cd "$BUILD_PATH" && run_traced cpack -G "$installer" -B "$package_dir" "${args[@]}")
+
+            for package_file in "$package_dir"/*.pkg; do
+                [[ -e "$package_file" ]] || continue
+                sanitize_productbuild_package "$package_file"
+                run_traced cp -f "$package_file" "$BUILD_PATH/"
+            done
+            run_traced rm -rf "$package_dir"
+        else
+            (cd "$BUILD_PATH" && run_traced cpack -G "$installer" "${args[@]}")
+        fi
     done
 fi
