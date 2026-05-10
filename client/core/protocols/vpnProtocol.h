@@ -60,6 +60,7 @@ public:
     virtual bool isDisconnected() const;
     virtual ErrorCode start() = 0;
     virtual void stop() = 0;
+    virtual void setStatsUpdatesEnabled(bool enabled);
 
     Vpn::ConnectionState connectionState() const;
     ErrorCode lastError() const;
@@ -83,6 +84,7 @@ public slots:
     virtual void onTimeout(); // todo: remove?
 
     void setBytesChanged(quint64 receivedBytes, quint64 sentBytes);
+    void resetBytesChangedBaseline();
     void setConnectionState(Vpn::ConnectionState state);
 
 protected:
@@ -102,6 +104,7 @@ private:
     ErrorCode m_lastError;
     quint64 m_receivedBytes;
     quint64 m_sentBytes;
+    bool m_skipNextBytesChanged = false;
 };
 
 #endif // VPNPROTOCOL_H

@@ -266,17 +266,36 @@ if(WIN32 OR (APPLE AND NOT IOS AND NOT MACOS_NE) OR (LINUX AND NOT ANDROID))
         ${CLIENT_ROOT_DIR}/core/protocols/xrayProtocol.h
         ${CLIENT_ROOT_DIR}/core/protocols/awgProtocol.h
         ${CLIENT_ROOT_DIR}/mozilla/localsocketcontroller.h
+        ${CLIENT_ROOT_DIR}/mozilla/dnspingsender.h
+        ${CLIENT_ROOT_DIR}/mozilla/pinghelper.h
+        ${CLIENT_ROOT_DIR}/mozilla/pingsender.h
+        ${CLIENT_ROOT_DIR}/mozilla/pingsenderfactory.h
     )
 
     set(SOURCES ${SOURCES}
         ${CLIENT_ROOT_DIR}/core/utils/ipcClient.cpp
         ${CLIENT_ROOT_DIR}/mozilla/localsocketcontroller.cpp
+        ${CLIENT_ROOT_DIR}/mozilla/dnspingsender.cpp
+        ${CLIENT_ROOT_DIR}/mozilla/pinghelper.cpp
+        ${CLIENT_ROOT_DIR}/mozilla/pingsender.cpp
+        ${CLIENT_ROOT_DIR}/mozilla/pingsenderfactory.cpp
         ${CLIENT_ROOT_DIR}/ui/utils/systemTrayNotificationHandler.cpp
         ${CLIENT_ROOT_DIR}/core/protocols/openVpnProtocol.cpp
         ${CLIENT_ROOT_DIR}/core/protocols/wireGuardProtocol.cpp
         ${CLIENT_ROOT_DIR}/core/protocols/xrayProtocol.cpp
         ${CLIENT_ROOT_DIR}/core/protocols/awgProtocol.cpp
     )
+
+    if(WIN32)
+        list(APPEND HEADERS ${CLIENT_ROOT_DIR}/platforms/windows/windowspingsender.h)
+        list(APPEND SOURCES ${CLIENT_ROOT_DIR}/platforms/windows/windowspingsender.cpp)
+    elseif(APPLE)
+        list(APPEND HEADERS ${CLIENT_ROOT_DIR}/platforms/macos/macospingsender.h)
+        list(APPEND SOURCES ${CLIENT_ROOT_DIR}/platforms/macos/macospingsender.cpp)
+    elseif(LINUX)
+        list(APPEND HEADERS ${CLIENT_ROOT_DIR}/platforms/linux/linuxpingsender.h)
+        list(APPEND SOURCES ${CLIENT_ROOT_DIR}/platforms/linux/linuxpingsender.cpp)
+    endif()
 endif()
 
 if(APPLE AND MACOS_NE)

@@ -21,6 +21,8 @@
 
 #define amnApp (static_cast<AmneziaApplication *>(QCoreApplication::instance()))
 
+class QWindow;
+
 #if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
   #define AMNEZIA_BASE_CLASS QGuiApplication
 #else
@@ -51,6 +53,8 @@ public slots:
     void forceQuit();
 
 private:
+    void updateStatsUpdatesEnabledForWindow(QWindow *window);
+
     static bool m_forceQuit;
     QQmlApplicationEngine *m_engine {};
     SecureQSettings* m_settings;

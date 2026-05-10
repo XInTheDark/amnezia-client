@@ -20,6 +20,7 @@ public:
 
     ErrorCode start() override;
     void stop() override;
+    void setStatsUpdatesEnabled(bool enabled) override;
 
     ErrorCode prepare() override;
     static QString defaultConfigFileName();
@@ -36,6 +37,7 @@ private:
     void disconnectFromManagementServer();
     void killOpenVpnProcess();
     void sendByteCount();
+    void stopByteCount();
     void sendInitialData();
     void sendManagementCommand(const QString& command);
 
@@ -46,6 +48,7 @@ private:
     QString m_configFileName;
     QJsonObject m_configData;
     QTemporaryFile m_configFile;
+    bool m_statsUpdatesEnabled = true;
 
     uint selectMgmtPort();
 

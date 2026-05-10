@@ -68,10 +68,23 @@ void VpnProtocol::setBytesChanged(quint64 receivedBytes, quint64 sentBytes)
     quint64 rxDiff = receivedBytes - m_receivedBytes;
     quint64 txDiff = sentBytes - m_sentBytes;
 
-    emit bytesChanged(rxDiff, txDiff);
+    if (!m_skipNextBytesChanged) {
+        emit bytesChanged(rxDiff, txDiff);
+    }
 
     m_receivedBytes = receivedBytes;
     m_sentBytes = sentBytes;
+    m_skipNextBytesChanged = false;
+}
+
+void VpnProtocol::resetBytesChangedBaseline()
+{
+    m_skipNextBytesChanged = true;
+}
+
+void VpnProtocol::setStatsUpdatesEnabled(bool enabled)
+{
+    Q_UNUSED(enabled)
 }
 
 void VpnProtocol::setConnectionState(Vpn::ConnectionState state)

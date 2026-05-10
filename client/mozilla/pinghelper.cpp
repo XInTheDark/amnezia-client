@@ -51,6 +51,7 @@ void PingHelper::start(const QString& serverIpv4Gateway,
     delete m_pingSender;
     m_pingSender = new DnsPingSender(m_source, this);
   }
+  m_pingSender->start();
 
   connect(m_pingSender, &PingSender::recvPing, this, &PingHelper::pingReceived,
           Qt::QueuedConnection);

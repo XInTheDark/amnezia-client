@@ -19,6 +19,8 @@ class PingSender : public QObject {
 
   virtual bool isValid() { return true; };
 
+  virtual void start() {}
+  virtual void stop() {}
   virtual void sendPing(const QHostAddress& destination, quint16 sequence) = 0;
 
   static quint16 inetChecksum(const void* data, size_t length);

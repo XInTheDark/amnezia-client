@@ -1,6 +1,7 @@
 #ifndef CONNECTIONUICONTROLLER_H
 #define CONNECTIONUICONTROLLER_H
 
+#include <QElapsedTimer>
 #include <QObject>
 
 #include "core/controllers/connectionController.h"
@@ -18,6 +19,9 @@ public:
     Q_PROPERTY(bool isConnected READ isConnected NOTIFY connectionStateChanged)
     Q_PROPERTY(bool isConnectionInProgress READ isConnectionInProgress NOTIFY connectionStateChanged)
     Q_PROPERTY(QString connectionStateText READ connectionStateText NOTIFY connectionStateChanged)
+    Q_PROPERTY(QString downloadSpeed READ downloadSpeed NOTIFY statsChanged)
+    Q_PROPERTY(QString uploadSpeed READ uploadSpeed NOTIFY statsChanged)
+    Q_PROPERTY(QString pingText READ pingText NOTIFY statsChanged)
 
     explicit ConnectionUiController(ConnectionController* connectionController,
                                     ServersController* serversController,
@@ -28,6 +32,9 @@ public:
     bool isConnected() const;
     bool isConnectionInProgress() const;
     QString connectionStateText() const;
+    QString downloadSpeed() const;
+    QString uploadSpeed() const;
+    QString pingText() const;
 
 public slots:
     void toggleConnection();
@@ -41,9 +48,12 @@ public slots:
     void onCurrentContainerUpdated();
 
     void onTranslationsUpdated();
+    void onBytesChanged(quint64 receivedBytes, quint64 sentBytes);
+    void onPingChanged(qint64 msec);
 
 signals:
     void connectionStateChanged();
+    void statsChanged();
 
     void connectionErrorOccurred(ErrorCode errorCode);
     void reconnectWithUpdatedContainer(const QString &message);
@@ -54,6 +64,7 @@ signals:
 
 private:
     Vpn::ConnectionState getCurrentConnectionState();
+    void clearStats();
 
     ConnectionController* m_connectionController;
     ServersController* m_serversController;
@@ -61,6 +72,10 @@ private:
     bool m_isConnected = false;
     bool m_isConnectionInProgress = false;
     QString m_connectionStateText = tr("Connect");
+    QString m_downloadSpeed;
+    QString m_uploadSpeed;
+    QString m_pingText;
+    QElapsedTimer m_speedTimer;
 
     Vpn::ConnectionState m_state;
 };

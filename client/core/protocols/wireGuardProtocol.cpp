@@ -16,6 +16,10 @@ WireguardProtocol::WireguardProtocol(const QJsonObject &configuration, QObject *
     connect(m_impl.get(), &ControllerImpl::connected, this,
             [this](const QString &pubkey, const QDateTime &connectionTimestamp) {
                 setConnectionState(Vpn::ConnectionState::Connected);
+                if (m_statsUpdatesEnabled) {
+                    resetBytesChangedBaseline();
+                    m_statsTimer.start();
+                }
             });
     connect(m_impl.get(), &ControllerImpl::statusUpdated, this,
             [this](const QString& serverIpv4Gateway,
@@ -35,10 +39,18 @@ WireguardProtocol::WireguardProtocol(const QJsonObject &configuration, QObject *
                     (!m_vpnLocalAddress.isEmpty() && m_vpnLocalAddress != previousLocal)) {
                     emit tunnelAddressesUpdated(m_vpnGateway, m_vpnLocalAddress);
                 }
+
+                setBytesChanged(rxBytes, txBytes);
             });
 
+    m_statsTimer.setInterval(1000);
+    connect(&m_statsTimer, &QTimer::timeout, m_impl.get(), &ControllerImpl::checkStatus);
+
     connect(m_impl.get(), &ControllerImpl::disconnected, this,
-            [this]() { setConnectionState(Vpn::ConnectionState::Disconnected); });
+            [this]() {
+                m_statsTimer.stop();
+                setConnectionState(Vpn::ConnectionState::Disconnected);
+            });
     m_impl->initialize(nullptr, nullptr);
 }
 
@@ -68,6 +80,7 @@ ErrorCode WireguardProtocol::startMzImpl()
 
 ErrorCode WireguardProtocol::stopMzImpl()
 {
+    m_statsTimer.stop();
     m_impl->deactivate();
     return ErrorCode::NoError;
 }
@@ -76,4 +89,24 @@ ErrorCode WireguardProtocol::stopMzImpl()
 ErrorCode WireguardProtocol::start()
 {
     return startMzImpl();
+}
+
+void WireguardProtocol::setStatsUpdatesEnabled(bool enabled)
+{
+    if (m_statsUpdatesEnabled == enabled) {
+        return;
+    }
+
+    m_statsUpdatesEnabled = enabled;
+
+    if (!enabled) {
+        m_statsTimer.stop();
+        return;
+    }
+
+    if (connectionState() == Vpn::ConnectionState::Connected) {
+        resetBytesChangedBaseline();
+        m_statsTimer.start();
+        m_impl->checkStatus();
+    }
 }

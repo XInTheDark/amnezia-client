@@ -269,6 +269,11 @@ void OpenVpnProtocol::sendByteCount()
     m_managementServer.writeCommand("bytecount 1");
 }
 
+void OpenVpnProtocol::stopByteCount()
+{
+    m_managementServer.writeCommand("bytecount 0");
+}
+
 void OpenVpnProtocol::sendInitialData()
 {
     m_managementServer.writeCommand("state on");
@@ -292,7 +297,10 @@ void OpenVpnProtocol::onReadyReadDataFromManagementServer()
             sendInitialData();
         } else if (line.startsWith(">STATE")) {
             if (line.contains("CONNECTED,SUCCESS")) {
-                sendByteCount();
+                if (m_statsUpdatesEnabled) {
+                    resetBytesChangedBaseline();
+                    sendByteCount();
+                }
                 stopTimeoutTimer();
                 setConnectionState(Vpn::ConnectionState::Connected);
                 continue;
@@ -336,6 +344,25 @@ void OpenVpnProtocol::onReadyReadDataFromManagementServer()
 
             setBytesChanged(r, s);
         }
+    }
+}
+
+void OpenVpnProtocol::setStatsUpdatesEnabled(bool enabled)
+{
+    if (m_statsUpdatesEnabled == enabled) {
+        return;
+    }
+
+    m_statsUpdatesEnabled = enabled;
+
+    if (!enabled) {
+        stopByteCount();
+        return;
+    }
+
+    if (connectionState() == Vpn::ConnectionState::Connected) {
+        resetBytesChangedBaseline();
+        sendByteCount();
     }
 }
 
@@ -387,6 +414,7 @@ void OpenVpnProtocol::updateVpnGateway(const QString &line)
                 }
 #endif
                 qDebug() << QString("Set vpn local address %1, gw %2").arg(m_vpnLocalAddress).arg(vpnGateway());
+                emit tunnelAddressesUpdated(m_vpnGateway, m_vpnLocalAddress);
             }
         }
     }

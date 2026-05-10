@@ -5,6 +5,8 @@
 #include <QLocalServer>
 #include <QLocalSocket>
 #include <QMimeData>
+#include <QMetaObject>
+#include <QPointer>
 #include <QQuickItem>
 #include <QQuickStyle>
 #include <QResource>
@@ -15,8 +17,8 @@
 #include <QEvent>
 #include <QDir>
 #include <QSettings>
-#include <QtQuick/QQuickWindow>  
-#include <QWindow>     
+#include <QtQuick/QQuickWindow>
+#include <QWindow>
 
 #include "core/protocols/qmlRegisterProtocols.h"
 #include "logger.h"
@@ -120,6 +122,7 @@ void AmneziaApplication::init()
                 win->setPersistentGraphics(true);
 #endif
                 win->show();
+                updateStatsUpdatesEnabledForWindow(win);
             }
         },
         Qt::QueuedConnection);
@@ -269,6 +272,21 @@ void AmneziaApplication::startLocalServer() {
 
 bool AmneziaApplication::eventFilter(QObject *watched, QEvent *event)
 {
+    if (auto window = qobject_cast<QWindow *>(watched)) {
+        switch (event->type()) {
+        case QEvent::Show:
+        case QEvent::Hide:
+        case QEvent::Expose:
+        case QEvent::WindowStateChange: {
+            QPointer<QWindow> windowGuard(window);
+            QTimer::singleShot(0, this, [this, windowGuard]() { updateStatsUpdatesEnabledForWindow(windowGuard); });
+            break;
+        }
+        default:
+            break;
+        }
+    }
+
     if (event->type() == QEvent::Close) {
 #if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
         quit();
@@ -285,6 +303,20 @@ bool AmneziaApplication::eventFilter(QObject *watched, QEvent *event)
     }
     // call base QObject::eventFilter
     return QObject::eventFilter(watched, event);
+}
+
+void AmneziaApplication::updateStatsUpdatesEnabledForWindow(QWindow *window)
+{
+    if (!window || !m_vpnConnection) {
+        return;
+    }
+
+    const bool statsUpdatesEnabled = window->isVisible()
+            && window->isExposed()
+            && !(window->windowState() & Qt::WindowMinimized);
+
+    QMetaObject::invokeMethod(m_vpnConnection.get(), "setStatsUpdatesEnabled", Qt::QueuedConnection,
+                              Q_ARG(bool, statsUpdatesEnabled));
 }
 
 void AmneziaApplication::forceQuit()

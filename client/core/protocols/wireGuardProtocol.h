@@ -21,6 +21,7 @@ public:
 
     ErrorCode start() override;
     void stop() override;
+    void setStatsUpdatesEnabled(bool enabled) override;
 
     ErrorCode startMzImpl();
     ErrorCode stopMzImpl();
@@ -28,6 +29,8 @@ public:
 private:
 
     QScopedPointer<ControllerImpl> m_impl;
+    QTimer m_statsTimer;
+    bool m_statsUpdatesEnabled = true;
 };
 
 #endif // WIREGUARDPROTOCOL_H

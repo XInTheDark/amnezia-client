@@ -25,6 +25,8 @@
 
 using namespace amnezia;
 
+class PingHelper;
+
 class VpnConnection : public QObject
 {
     Q_OBJECT
@@ -58,9 +60,11 @@ public slots:
     void disconnectSlots();
 
     void setConnectionState(Vpn::ConnectionState state);
+    void setStatsUpdatesEnabled(bool enabled);
 
 signals:
     void bytesChanged(quint64 receivedBytes, quint64 sentBytes);
+    void pingChanged(qint64 msec);
     void connectionStateChanged(Vpn::ConnectionState state);
     void vpnProtocolError(amnezia::ErrorCode error);
 
@@ -85,6 +89,14 @@ private:
     QTimer m_checkTimer;
     QTimer m_reconnectTimeoutTimer;
 
+#ifdef AMNEZIA_DESKTOP
+    PingHelper *m_pingHelper = nullptr;
+    QString m_tunnelGateway;
+    QString m_tunnelLocalAddress;
+    QString m_pingGateway;
+    QString m_pingLocalAddress;
+#endif
+
 #ifdef Q_OS_ANDROID
     AndroidVpnProtocol *androidVpnProtocol = nullptr;
 
@@ -95,11 +107,18 @@ private:
     Vpn::ConnectionState m_connectionState = Vpn::ConnectionState::Disconnected;
     bool m_reconnectInProgress = false;
     bool m_reconnectRestarting = false;
+    bool m_statsUpdatesEnabled = true;
 
     void createProtocolConnections();
 
     void appendSplitTunnelingConfig();
     void appendKillSwitchConfig();
+
+#ifdef AMNEZIA_DESKTOP
+    void onTunnelAddressesUpdated(const QString &gateway, const QString &localAddress);
+    void startPingStatsIfReady();
+    void stopPingStats();
+#endif
 };
 
 #endif // VPNCONNECTION_H

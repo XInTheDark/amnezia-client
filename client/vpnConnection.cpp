@@ -6,6 +6,7 @@
 #include <QHostInfo>
 #include <QJsonObject>
 #include <QObject>
+#include <QRemoteObjectPendingCall>
 #include <QSharedPointer>
 #include <QString>
 #include <QStringList>
@@ -16,6 +17,7 @@
 
 #ifdef AMNEZIA_DESKTOP
     #include "core/utils/ipcClient.h"
+    #include "mozilla/pinghelper.h"
     #include <core/protocols/wireGuardProtocol.h>
 #endif
 
@@ -73,6 +75,9 @@ VpnConnection::VpnConnection(SecureServersRepository *serversRepository,
 
 VpnConnection::~VpnConnection()
 {
+#ifdef AMNEZIA_DESKTOP
+    stopPingStats();
+#endif
 }
 
 void VpnConnection::onBytesChanged(quint64 receivedBytes, quint64 sentBytes)
@@ -84,11 +89,15 @@ void VpnConnection::onKillSwitchModeChanged(bool enabled)
 {
 #ifdef AMNEZIA_DESKTOP
     IpcClient::withInterface([enabled](QSharedPointer<IpcInterfaceReplica> iface) {
-        QRemoteObjectPendingReply<bool> reply = iface->refreshKillSwitch(enabled);
-        if (reply.waitForFinished(kServiceReplyTimeoutMs) && reply.returnValue())
-            qDebug() << "VpnConnection::onKillSwitchModeChanged: Killswitch refreshed";
-        else
-            qWarning() << "VpnConnection::onKillSwitchModeChanged: Failed to execute remote refreshKillSwitch call";
+        auto reply = iface->refreshKillSwitch(enabled);
+        auto *watcher = new QRemoteObjectPendingCallWatcher(reply);
+        QObject::connect(watcher, &QRemoteObjectPendingCallWatcher::finished, [watcher]() {
+            if (watcher->returnValue().toBool())
+                qDebug() << "VpnConnection::onKillSwitchModeChanged: Killswitch refreshed";
+            else
+                qWarning() << "VpnConnection::onKillSwitchModeChanged: Failed to execute remote refreshKillSwitch call";
+            watcher->deleteLater();
+        });
     });
 #endif
 }
@@ -110,10 +119,14 @@ void VpnConnection::onConnectionStateChanged(Vpn::ConnectionState state)
             iface->resetIpStack();
 
             auto flushDns = iface->flushDns();
-            if (flushDns.waitForFinished(kServiceReplyTimeoutMs) && flushDns.returnValue())
-                qDebug() << "VpnConnection::onConnectionStateChanged: Successfully flushed DNS";
-            else
-                qWarning() << "VpnConnection::onConnectionStateChanged: Failed to flush DNS";
+            auto *flushDnsWatcher = new QRemoteObjectPendingCallWatcher(flushDns);
+            QObject::connect(flushDnsWatcher, &QRemoteObjectPendingCallWatcher::finished, [flushDnsWatcher]() {
+                if (flushDnsWatcher->returnValue().toBool())
+                    qDebug() << "VpnConnection::onConnectionStateChanged: Successfully flushed DNS";
+                else
+                    qWarning() << "VpnConnection::onConnectionStateChanged: Failed to flush DNS";
+                flushDnsWatcher->deleteLater();
+            });
 
             if (!ContainerUtils::isAwgContainer(container) && container != DockerContainer::WireGuard) {
                 QString dns1 = m_vpnConfiguration.value(configKey::dns1).toString();
@@ -151,16 +164,24 @@ void VpnConnection::onConnectionStateChanged(Vpn::ConnectionState state)
         case Vpn::ConnectionState::Disconnected:
         case Vpn::ConnectionState::Error: {
             auto flushDns = iface->flushDns();
-            if (flushDns.waitForFinished(kServiceReplyTimeoutMs) && flushDns.returnValue())
-                qDebug() << "VpnConnection::onConnectionStateChanged: Successfully flushed DNS";
-            else
-                qWarning() << "VpnConnection::onConnectionStateChanged: Failed to flush DNS";
+            auto *flushDnsWatcher = new QRemoteObjectPendingCallWatcher(flushDns);
+            QObject::connect(flushDnsWatcher, &QRemoteObjectPendingCallWatcher::finished, [flushDnsWatcher]() {
+                if (flushDnsWatcher->returnValue().toBool())
+                    qDebug() << "VpnConnection::onConnectionStateChanged: Successfully flushed DNS";
+                else
+                    qWarning() << "VpnConnection::onConnectionStateChanged: Failed to flush DNS";
+                flushDnsWatcher->deleteLater();
+            });
 
             auto clearSavedRoutes = iface->clearSavedRoutes();
-            if (clearSavedRoutes.waitForFinished(kServiceReplyTimeoutMs) && clearSavedRoutes.returnValue())
-                qDebug() << "VpnConnection::onConnectionStateChanged: Successfully cleared saved routes";
-            else
-                qWarning() << "VpnConnection::onConnectionStateChanged: Failed to clear saved routes";
+            auto *clearSavedRoutesWatcher = new QRemoteObjectPendingCallWatcher(clearSavedRoutes);
+            QObject::connect(clearSavedRoutesWatcher, &QRemoteObjectPendingCallWatcher::finished, [clearSavedRoutesWatcher]() {
+                if (clearSavedRoutesWatcher->returnValue().toBool())
+                    qDebug() << "VpnConnection::onConnectionStateChanged: Successfully cleared saved routes";
+                else
+                    qWarning() << "VpnConnection::onConnectionStateChanged: Failed to clear saved routes";
+                clearSavedRoutesWatcher->deleteLater();
+            });
         } break;
         default: break;
         }
@@ -299,9 +320,12 @@ void VpnConnection::connectToVpn(int serverIndex, DockerContainer container, con
             m_reconnectRestarting = false;
             m_reconnectTimeoutTimer.stop();
         }
+        stopPingStats();
         m_vpnProtocol->stop();
         m_vpnProtocol.reset();
     }
+    m_tunnelGateway.clear();
+    m_tunnelLocalAddress.clear();
     appendKillSwitchConfig();
 #endif
 
@@ -339,8 +363,11 @@ void VpnConnection::createProtocolConnections()
     connect(m_vpnProtocol.data(), &VpnProtocol::protocolError, this, &VpnConnection::vpnProtocolError);
     connect(m_vpnProtocol.data(), &VpnProtocol::connectionStateChanged, this, &VpnConnection::setConnectionState);
     connect(m_vpnProtocol.data(), SIGNAL(bytesChanged(quint64, quint64)), this, SLOT(onBytesChanged(quint64, quint64)));
+    m_vpnProtocol->setStatsUpdatesEnabled(m_statsUpdatesEnabled);
 
 #ifdef AMNEZIA_DESKTOP
+    connect(m_vpnProtocol.data(), &VpnProtocol::tunnelAddressesUpdated, this, &VpnConnection::onTunnelAddressesUpdated);
+
     IpcClient::withInterface([this](QSharedPointer<IpcInterfaceReplica> rep) {
         connect(rep.data(), &IpcInterfaceReplica::networkChanged, this, &VpnConnection::reconnectToVpn,
                 static_cast<Qt::ConnectionType>(Qt::QueuedConnection | Qt::UniqueConnection));
@@ -349,6 +376,62 @@ void VpnConnection::createProtocolConnections()
     });
 #endif
 }
+
+#ifdef AMNEZIA_DESKTOP
+void VpnConnection::onTunnelAddressesUpdated(const QString &gateway, const QString &localAddress)
+{
+    if (!gateway.isEmpty()) {
+        m_tunnelGateway = gateway;
+    }
+    if (!localAddress.isEmpty()) {
+        m_tunnelLocalAddress = localAddress;
+    }
+
+    startPingStatsIfReady();
+}
+
+void VpnConnection::startPingStatsIfReady()
+{
+    if (!m_statsUpdatesEnabled || m_connectionState != Vpn::ConnectionState::Connected || m_vpnProtocol.isNull()) {
+        return;
+    }
+
+    const QString gateway = !m_tunnelGateway.isEmpty() ? m_tunnelGateway : m_vpnProtocol->vpnGateway();
+    const QString localAddress = !m_tunnelLocalAddress.isEmpty() ? m_tunnelLocalAddress : m_vpnProtocol->vpnLocalAddress();
+
+    if (gateway.isEmpty() || localAddress.isEmpty()) {
+        return;
+    }
+
+    if (m_pingHelper && m_pingGateway == gateway && m_pingLocalAddress == localAddress) {
+        return;
+    }
+
+    stopPingStats();
+
+    m_pingGateway = gateway;
+    m_pingLocalAddress = localAddress;
+    m_pingHelper = new PingHelper();
+    m_pingHelper->setParent(this);
+    connect(m_pingHelper, &PingHelper::pingSentAndReceived, this, &VpnConnection::pingChanged);
+    connect(m_pingHelper, &PingHelper::connectionLose, this, [this]() { emit pingChanged(-1); });
+    m_pingHelper->start(m_pingGateway, m_pingLocalAddress);
+}
+
+void VpnConnection::stopPingStats()
+{
+    if (!m_pingHelper) {
+        return;
+    }
+
+    m_pingHelper->stop();
+    m_pingHelper->deleteLater();
+    m_pingHelper = nullptr;
+    m_pingGateway.clear();
+    m_pingLocalAddress.clear();
+    emit pingChanged(-1);
+}
+#endif
 
 void VpnConnection::appendKillSwitchConfig()
 {
@@ -582,6 +665,27 @@ void VpnConnection::disconnectFromVpn()
     m_vpnProtocol = nullptr;
 }
 
+void VpnConnection::setStatsUpdatesEnabled(bool enabled)
+{
+    if (m_statsUpdatesEnabled == enabled) {
+        return;
+    }
+
+    m_statsUpdatesEnabled = enabled;
+
+    if (m_vpnProtocol) {
+        m_vpnProtocol->setStatsUpdatesEnabled(enabled);
+    }
+
+#ifdef AMNEZIA_DESKTOP
+    if (enabled) {
+        startPingStatsIfReady();
+    } else {
+        stopPingStats();
+    }
+#endif
+}
+
 void VpnConnection::setConnectionState(Vpn::ConnectionState state)
 {
     if (state == Vpn::Disconnected && m_reconnectRestarting) {
@@ -603,4 +707,12 @@ void VpnConnection::setConnectionState(Vpn::ConnectionState state)
 
     m_connectionState = state;
     emit connectionStateChanged(state);
+
+#ifdef AMNEZIA_DESKTOP
+    if (state == Vpn::Connected && m_statsUpdatesEnabled) {
+        startPingStatsIfReady();
+    } else if (state == Vpn::Disconnected || state == Vpn::Disconnecting || state == Vpn::Error || state == Vpn::Unknown) {
+        stopPingStats();
+    }
+#endif
 }

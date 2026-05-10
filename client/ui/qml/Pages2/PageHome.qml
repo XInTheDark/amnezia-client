@@ -119,12 +119,96 @@ PageType {
                 }
             }
 
-            ConnectButton {
-                id: connectButton
-                objectName: "connectButton"
-
+            Item {
                 Layout.fillHeight: true
-                Layout.alignment: Qt.AlignCenter
+                Layout.fillWidth: true
+
+                RowLayout {
+                    id: connectionStats
+
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    anchors.bottom: connectButton.top
+                    anchors.bottomMargin: 16
+
+                    spacing: 18
+
+                    opacity: ConnectionController.isConnected ? 1.0 : 0.0
+                    visible: opacity > 0
+
+                    Behavior on opacity {
+                        NumberAnimation { duration: 180; easing.type: Easing.InOutQuad }
+                    }
+
+                    ColumnLayout {
+                        Layout.preferredWidth: 74
+                        spacing: 2
+
+                        CaptionTextType {
+                            Layout.alignment: Qt.AlignHCenter
+                            text: qsTr("Down")
+                            color: AmneziaStyle.color.mutedGray
+                        }
+
+                        Text {
+                            Layout.alignment: Qt.AlignHCenter
+                            text: ConnectionController.downloadSpeed || "0.00 Mbps"
+                            font.family: "PT Root UI VF"
+                            font.pixelSize: 13
+                            font.weight: 500
+                            color: AmneziaStyle.color.goldenApricot
+                            horizontalAlignment: Text.AlignHCenter
+                        }
+                    }
+
+                    ColumnLayout {
+                        Layout.preferredWidth: 74
+                        spacing: 2
+
+                        CaptionTextType {
+                            Layout.alignment: Qt.AlignHCenter
+                            text: qsTr("Up")
+                            color: AmneziaStyle.color.mutedGray
+                        }
+
+                        Text {
+                            Layout.alignment: Qt.AlignHCenter
+                            text: ConnectionController.uploadSpeed || "0.00 Mbps"
+                            font.family: "PT Root UI VF"
+                            font.pixelSize: 13
+                            font.weight: 500
+                            color: AmneziaStyle.color.paleGray
+                            horizontalAlignment: Text.AlignHCenter
+                        }
+                    }
+
+                    ColumnLayout {
+                        Layout.preferredWidth: 58
+                        spacing: 2
+
+                        CaptionTextType {
+                            Layout.alignment: Qt.AlignHCenter
+                            text: qsTr("Ping")
+                            color: AmneziaStyle.color.mutedGray
+                        }
+
+                        Text {
+                            Layout.alignment: Qt.AlignHCenter
+                            text: ConnectionController.pingText || "-- ms"
+                            font.family: "PT Root UI VF"
+                            font.pixelSize: 13
+                            font.weight: 500
+                            color: AmneziaStyle.color.paleGray
+                            horizontalAlignment: Text.AlignHCenter
+                        }
+                    }
+                }
+
+                ConnectButton {
+                    id: connectButton
+                    objectName: "connectButton"
+
+                    anchors.centerIn: parent
+                }
             }
 
             BasicButtonType {
