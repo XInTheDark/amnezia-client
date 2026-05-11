@@ -59,9 +59,15 @@ VpnConnection::VpnConnection(SecureServersRepository *serversRepository,
         qWarning() << "VPN reconnect timed out";
         m_reconnectInProgress = false;
         m_reconnectRestarting = false;
+        m_reconnectPending = false;
         if (m_vpnProtocol) {
+            m_vpnProtocol->disconnect(this);
             m_vpnProtocol->stop();
+            m_vpnProtocol.reset();
         }
+#ifdef AMNEZIA_DESKTOP
+        stopPingStats();
+#endif
         setConnectionState(Vpn::ConnectionState::Error);
         emit vpnProtocolError(ErrorCode::InternalError);
     });
@@ -308,6 +314,7 @@ void VpnConnection::connectToVpn(int serverIndex, DockerContainer container, con
              << m_appSettingsRepository->routeMode();
 
     m_remoteAddress = NetworkUtilities::getIPAddress(vpnConfiguration.value(configKey::hostName).toString());
+    m_currentContainer = container;
     setConnectionState(Vpn::ConnectionState::Connecting);
 
     m_vpnConfiguration = vpnConfiguration;
@@ -318,6 +325,7 @@ void VpnConnection::connectToVpn(int serverIndex, DockerContainer container, con
         if (m_reconnectInProgress) {
             m_reconnectInProgress = false;
             m_reconnectRestarting = false;
+            m_reconnectPending = false;
             m_reconnectTimeoutTimer.stop();
         }
         stopPingStats();
@@ -332,12 +340,12 @@ void VpnConnection::connectToVpn(int serverIndex, DockerContainer container, con
     appendSplitTunnelingConfig();
 
 #if !defined(Q_OS_ANDROID) && !defined(Q_OS_IOS) && !defined(MACOS_NE)
-    m_vpnProtocol.reset(VpnProtocol::factory(container, m_vpnConfiguration));
-    if (!m_vpnProtocol) {
+    ErrorCode err = createAndStartProtocol(container);
+    if (err != ErrorCode::NoError) {
         setConnectionState(Vpn::ConnectionState::Error);
-        return;
+        emit vpnProtocolError(err);
     }
-    m_vpnProtocol->prepare();
+    return;
 #elif defined Q_OS_ANDROID
     androidVpnProtocol = createDefaultAndroidVpnProtocol();
     createAndroidConnections();
@@ -356,6 +364,33 @@ void VpnConnection::connectToVpn(int serverIndex, DockerContainer container, con
         setConnectionState(Vpn::ConnectionState::Error);
         emit vpnProtocolError(err);
     }
+}
+
+ErrorCode VpnConnection::createAndStartProtocol(DockerContainer container)
+{
+#if !defined(Q_OS_ANDROID) && !defined(Q_OS_IOS) && !defined(MACOS_NE)
+    m_vpnProtocol.reset(VpnProtocol::factory(container, m_vpnConfiguration));
+    if (!m_vpnProtocol) {
+        return ErrorCode::InternalError;
+    }
+
+    ErrorCode err = m_vpnProtocol->prepare();
+    if (err != ErrorCode::NoError) {
+        m_vpnProtocol.reset();
+        return err;
+    }
+
+    createProtocolConnections();
+    err = m_vpnProtocol->start();
+    if (err != ErrorCode::NoError) {
+        m_vpnProtocol->disconnect(this);
+        m_vpnProtocol.reset();
+    }
+    return err;
+#else
+    Q_UNUSED(container)
+    return ErrorCode::InternalError;
+#endif
 }
 
 void VpnConnection::createProtocolConnections()
@@ -602,7 +637,9 @@ void VpnConnection::reconnectToVpn()
         return;
 
     if (m_reconnectInProgress) {
-        qDebug() << "Reconnect already in progress; ignoring duplicate trigger";
+        qDebug() << "Reconnect already in progress; scheduling another restart";
+        m_reconnectPending = true;
+        m_reconnectTimeoutTimer.start();
         return;
     }
 
@@ -616,16 +653,70 @@ void VpnConnection::reconnectToVpn()
 
     m_reconnectInProgress = true;
     m_reconnectRestarting = true;
+    m_reconnectPending = false;
     m_reconnectTimeoutTimer.start();
     setConnectionState(Vpn::ConnectionState::Reconnecting);
 
-    m_vpnProtocol->stop();
-    m_reconnectRestarting = false;
-    if (ErrorCode err = m_vpnProtocol->start(); err != ErrorCode::NoError) {
+    restartProtocolForReconnect();
+}
+
+void VpnConnection::restartProtocolForReconnect()
+{
+#if !defined(Q_OS_ANDROID) && !defined(Q_OS_IOS) && !defined(MACOS_NE)
+    if (m_currentContainer == DockerContainer::None) {
+        qWarning() << "Reconnect requested without a saved container";
         m_reconnectInProgress = false;
+        m_reconnectRestarting = false;
+        m_reconnectPending = false;
+        m_reconnectTimeoutTimer.stop();
+        setConnectionState(Vpn::ConnectionState::Error);
+        emit vpnProtocolError(ErrorCode::InternalError);
+        return;
+    }
+
+    if (m_vpnProtocol) {
+        m_vpnProtocol->stop();
+        m_vpnProtocol->disconnect(this);
+        m_vpnProtocol.reset();
+    }
+
+#ifdef AMNEZIA_DESKTOP
+    stopPingStats();
+    m_tunnelGateway.clear();
+    m_tunnelLocalAddress.clear();
+#endif
+
+    m_reconnectRestarting = false;
+    ErrorCode err = createAndStartProtocol(m_currentContainer);
+    if (err != ErrorCode::NoError) {
+        m_reconnectInProgress = false;
+        m_reconnectPending = false;
         m_reconnectTimeoutTimer.stop();
         setConnectionState(Vpn::ConnectionState::Error);
         emit vpnProtocolError(err);
+    }
+#endif
+}
+
+void VpnConnection::schedulePendingReconnectIfNeeded(Vpn::ConnectionState state)
+{
+    if (!m_reconnectPending) {
+        return;
+    }
+
+    if (state == Vpn::ConnectionState::Connected) {
+        qDebug() << "Running pending reconnect restart after duplicate trigger";
+        m_reconnectPending = false;
+        QTimer::singleShot(0, this, [this]() {
+            if (m_connectionState == Vpn::ConnectionState::Connected) {
+                reconnectToVpn();
+            }
+        });
+        return;
+    }
+
+    if (state == Vpn::ConnectionState::Disconnected || state == Vpn::ConnectionState::Error) {
+        m_reconnectPending = false;
     }
 }
 
@@ -640,6 +731,13 @@ void VpnConnection::disconnectFromVpn()
     if (m_vpnProtocol.isNull()) {
         setConnectionState(Vpn::ConnectionState::Disconnected);
         return;
+    }
+
+    if (m_reconnectInProgress) {
+        m_reconnectInProgress = false;
+        m_reconnectRestarting = false;
+        m_reconnectPending = false;
+        m_reconnectTimeoutTimer.stop();
     }
 
     setConnectionState(Vpn::ConnectionState::Disconnecting);
@@ -696,9 +794,13 @@ void VpnConnection::setConnectionState(Vpn::ConnectionState state)
     onConnectionStateChanged(state);
 
     if (state == Vpn::Connected || state == Vpn::Disconnected || state == Vpn::Error) {
+        const bool reconnectWasInProgress = m_reconnectInProgress;
         m_reconnectInProgress = false;
         m_reconnectRestarting = false;
         m_reconnectTimeoutTimer.stop();
+        if (reconnectWasInProgress) {
+            schedulePendingReconnectIfNeeded(state);
+        }
     }
 
     if (m_connectionState == state) {

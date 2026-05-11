@@ -84,6 +84,7 @@ private:
     QJsonObject m_vpnConfiguration;
     QJsonObject m_routeMode;
     QString m_remoteAddress;
+    DockerContainer m_currentContainer = DockerContainer::None;
 
     // Only for iOS for now, check counters
     QTimer m_checkTimer;
@@ -107,9 +108,13 @@ private:
     Vpn::ConnectionState m_connectionState = Vpn::ConnectionState::Disconnected;
     bool m_reconnectInProgress = false;
     bool m_reconnectRestarting = false;
+    bool m_reconnectPending = false;
     bool m_statsUpdatesEnabled = true;
 
     void createProtocolConnections();
+    ErrorCode createAndStartProtocol(DockerContainer container);
+    void restartProtocolForReconnect();
+    void schedulePendingReconnectIfNeeded(Vpn::ConnectionState state);
 
     void appendSplitTunnelingConfig();
     void appendKillSwitchConfig();
