@@ -57,6 +57,7 @@ namespace amnezia
         ExecutableMissing = 604,
         XrayExecutableMissing = 605,
         Tun2SockExecutableMissing = 606,
+        Udp2RawExecutableMissing = 607,
 
         // VPN errors
         OpenVpnAdaptersInUseError = 700,
@@ -68,6 +69,7 @@ namespace amnezia
         OpenSslFailed = 800,
         XrayExecutableCrashed = 803,
         Tun2SockExecutableCrashed = 804,
+        Udp2RawExecutableCrashed = 805,
 
         // import and install errors
         ImportInvalidConfigError = 900,
@@ -115,5 +117,4 @@ namespace amnezia
 Q_DECLARE_METATYPE(amnezia::ErrorCode)
 
 #endif // ERRORCODES_H
-
 

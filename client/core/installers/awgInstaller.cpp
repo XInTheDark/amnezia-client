@@ -29,7 +29,7 @@ ContainerConfig AwgInstaller::generateConfig(DockerContainer container, int port
 {
     ContainerConfig config = createBaseConfig(container, port, transportProto);
     
-    bool isAwg2 = (container == DockerContainer::Awg2);
+    bool isAwg2 = (container == DockerContainer::Awg2 || container == DockerContainer::Udp2RawAwg);
     
     if (auto* awgConfig = config.getAwgProtocolConfig()) {
         generateAwgParameters(awgConfig->serverConfig, isAwg2);
@@ -188,13 +188,35 @@ ErrorCode AwgInstaller::extractConfigFromContainer(DockerContainer container, co
         awgConfig->serverConfig.specialJunk5 = serverConfigMap.value(QString("# ") + configKey::specialJunk5);
 
         // AWG 2.0 specific fields
-        if (container == DockerContainer::Awg2) {
+        if (container == DockerContainer::Awg2 || container == DockerContainer::Udp2RawAwg) {
             awgConfig->serverConfig.protocolVersion = "2";
             awgConfig->serverConfig.cookieReplyPacketJunkSize = serverConfigMap.value(configKey::cookieReplyPacketJunkSize);
             awgConfig->serverConfig.transportPacketJunkSize = serverConfigMap.value(configKey::transportPacketJunkSize);
+        }
+        if (container == DockerContainer::Udp2RawAwg) {
+            ErrorCode envError = ErrorCode::NoError;
+            QString udp2rawEnv = sshSession->getTextFileFromContainer(container, credentials, "/opt/amnezia/udp2raw.env", envError);
+            if (envError == ErrorCode::NoError) {
+                const auto envLines = udp2rawEnv.split("\n");
+                for (const QString &line : envLines) {
+                    const QStringList parts = line.split("=");
+                    if (parts.size() != 2) {
+                        continue;
+                    }
+                    if (parts[0] == "UDP2RAW_PUBLIC_PORT") {
+                        awgConfig->serverConfig.udp2rawPublicPort = parts[1].trimmed();
+                    } else if (parts[0] == "UDP2RAW_INTERNAL_PORT") {
+                        awgConfig->serverConfig.udp2rawInternalPort = parts[1].trimmed();
+                        awgConfig->serverConfig.port = parts[1].trimmed();
+                    } else if (parts[0] == "UDP2RAW_PASSWORD") {
+                        awgConfig->serverConfig.udp2rawPassword = parts[1].trimmed();
+                    } else if (parts[0] == "UDP2RAW_RAW_MODE") {
+                        awgConfig->serverConfig.udp2rawRawMode = parts[1].trimmed();
+                    }
+                }
+            }
         }
     }
     
     return ErrorCode::NoError;
 }
-

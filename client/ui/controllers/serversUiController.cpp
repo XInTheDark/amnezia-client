@@ -222,7 +222,7 @@ bool ServersUiController::isDefaultServerDefaultContainerHasSplitTunneling() con
     
     ContainerConfig containerConfig = server.containerConfig(defaultContainer);
     
-    if (defaultContainer == DockerContainer::Awg || defaultContainer == DockerContainer::WireGuard) {
+    if (ContainerUtils::isAwgContainer(defaultContainer) || ContainerUtils::isWireGuardLikeContainer(defaultContainer)) {
         auto hasSplitTunnelingFromAllowedIps = [](const QStringList& allowedIps, const QString& nativeConfig) -> bool {
             bool hasSplitTunneling = !allowedIps.isEmpty() && !allowedIps.contains("0.0.0.0/0");
             if (!hasSplitTunneling && !nativeConfig.isEmpty()) {
@@ -232,7 +232,7 @@ bool ServersUiController::isDefaultServerDefaultContainerHasSplitTunneling() con
             return hasSplitTunneling;
         };
         
-        if (defaultContainer == DockerContainer::Awg) {
+        if (ContainerUtils::isAwgContainer(defaultContainer)) {
             if (const auto* awgConfig = containerConfig.getAwgProtocolConfig()) {
                 if (awgConfig->hasClientConfig()) {
                     return hasSplitTunnelingFromAllowedIps(
@@ -241,7 +241,7 @@ bool ServersUiController::isDefaultServerDefaultContainerHasSplitTunneling() con
                     );
                 }
             }
-        } else if (defaultContainer == DockerContainer::WireGuard) {
+        } else if (ContainerUtils::isWireGuardLikeContainer(defaultContainer)) {
             if (const auto* wgConfig = containerConfig.getWireGuardProtocolConfig()) {
                 if (wgConfig->hasClientConfig()) {
                     return hasSplitTunnelingFromAllowedIps(
@@ -488,4 +488,3 @@ QStringList ServersUiController::getAllInstalledServicesName(int serverIndex) co
     servicesName.sort();
     return servicesName;
 }
-

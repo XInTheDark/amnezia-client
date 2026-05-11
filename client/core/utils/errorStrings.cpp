@@ -49,6 +49,7 @@ QString errorString(ErrorCode code) {
     // Distro errors
     case (ErrorCode::OpenVpnExecutableMissing): errorMessage = QObject::tr("OpenVPN executable missing"); break;
     case (ErrorCode::AmneziaServiceConnectionFailed): errorMessage = QObject::tr("Amnezia helper service error"); break;
+    case (ErrorCode::Udp2RawExecutableMissing): errorMessage = QObject::tr("udp2raw_mp is missing. Install it with Homebrew: brew install udp2raw-multiplatform"); break;
     case (ErrorCode::OpenSslFailed): errorMessage = QObject::tr("OpenSSL failed"); break;
 
     // VPN errors
@@ -61,6 +62,7 @@ QString errorString(ErrorCode code) {
     case (ErrorCode::RestoreBackupInvalidError): errorMessage = QObject::tr("Backup file is corrupted or has invalid format"); break;
     case (ErrorCode::ImportOpenConfigError): errorMessage = QObject::tr("Unable to open config file"); break;
     case (ErrorCode::NoInstalledContainersError): errorMessage = QObject::tr("VPN Protocols is not installed.\n Please install VPN container at first"); break;
+    case (ErrorCode::Udp2RawExecutableCrashed): errorMessage = QObject::tr("udp2raw_mp stopped unexpectedly"); break;
 
     // Android errors
     case (ErrorCode::AndroidError): errorMessage = QObject::tr("VPN connection error"); break;

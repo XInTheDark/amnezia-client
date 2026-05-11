@@ -28,7 +28,13 @@ bool WireGuardConfigModel::setData(const QModelIndex &index, const QVariant &val
 
     switch (role) {
     case Roles::SubnetAddressRole: m_protocolConfig.serverConfig.subnetAddress = strValue; break;
-    case Roles::PortRole: m_protocolConfig.serverConfig.port = strValue; break;
+    case Roles::PortRole:
+        if (ContainerUtils::isUdp2RawContainer(m_container)) {
+            m_protocolConfig.serverConfig.udp2rawPublicPort = strValue;
+        } else {
+            m_protocolConfig.serverConfig.port = strValue;
+        }
+        break;
     case Roles::ClientMtuRole: {
         if (!m_protocolConfig.clientConfig.has_value()) {
             m_protocolConfig.clientConfig = amnezia::WireGuardClientConfig{};
@@ -52,13 +58,19 @@ QVariant WireGuardConfigModel::data(const QModelIndex &index, int role) const
 
     switch (role) {
     case Roles::SubnetAddressRole: return m_protocolConfig.serverConfig.subnetAddress;
-    case Roles::PortRole: return m_protocolConfig.serverConfig.port;
+    case Roles::PortRole:
+        return ContainerUtils::isUdp2RawContainer(m_container)
+            ? m_protocolConfig.serverConfig.udp2rawPublicPort
+            : m_protocolConfig.serverConfig.port;
     case Roles::ClientMtuRole: {
         if (m_protocolConfig.clientConfig.has_value()) {
             return m_protocolConfig.clientConfig->mtu;
         }
         return QString(protocols::wireguard::defaultMtu);
     }
+    case Roles::Udp2RawPasswordRole: return m_protocolConfig.serverConfig.udp2rawPassword;
+    case Roles::Udp2RawRawModeRole: return m_protocolConfig.serverConfig.udp2rawRawMode;
+    case Roles::IsUdp2RawRole: return ContainerUtils::isUdp2RawContainer(m_container);
     }
 
     return QVariant();
@@ -88,10 +100,25 @@ void WireGuardConfigModel::applyDefaultsToServerConfig(amnezia::WireGuardServerC
     if (config.subnetAddress.isEmpty()) {
         config.subnetAddress = protocols::wireguard::defaultSubnetAddress;
     }
-    if (config.port.isEmpty()) {
+    if (ContainerUtils::isUdp2RawContainer(m_container)) {
+        if (config.udp2rawPublicPort.isEmpty()) {
+            config.udp2rawPublicPort = protocols::udp2raw::defaultPublicPort;
+        }
+        if (config.udp2rawInternalPort.isEmpty()) {
+            config.udp2rawInternalPort = protocols::wireguard::defaultPort;
+        }
+        if (config.port.isEmpty()) {
+            config.port = config.udp2rawInternalPort;
+        }
+        if (config.udp2rawRawMode.isEmpty()) {
+            config.udp2rawRawMode = protocols::udp2raw::defaultRawMode;
+        }
+    } else if (config.port.isEmpty()) {
         config.port = protocols::wireguard::defaultPort;
     }
-    if (config.transportProto.isEmpty()) {
+    if (ContainerUtils::isUdp2RawContainer(m_container)) {
+        config.transportProto = "tcp";
+    } else if (config.transportProto.isEmpty()) {
         config.transportProto = ProtocolUtils::transportProtoToString(
             ProtocolUtils::defaultTransportProto(amnezia::Proto::WireGuard), amnezia::Proto::WireGuard);
     }
@@ -127,7 +154,9 @@ QHash<int, QByteArray> WireGuardConfigModel::roleNames() const
     roles[SubnetAddressRole] = "subnetAddress";
     roles[PortRole] = "port";
     roles[ClientMtuRole] = "clientMtu";
+    roles[Udp2RawPasswordRole] = "udp2rawPassword";
+    roles[Udp2RawRawModeRole] = "udp2rawRawMode";
+    roles[IsUdp2RawRole] = "isUdp2Raw";
 
     return roles;
 }
-

@@ -740,7 +740,7 @@ void ImportController::processAmneziaConfig(QJsonObject &config) const
     for (auto i = 0; i < containers.size(); i++) {
         auto container = containers.at(i).toObject();
         auto dockerContainer = ContainerUtils::containerFromString(container.value(configKey::container).toString());
-        if (ContainerUtils::isAwgContainer(dockerContainer) || dockerContainer == DockerContainer::WireGuard) {
+        if (ContainerUtils::isAwgContainer(dockerContainer) || ContainerUtils::isWireGuardLikeContainer(dockerContainer)) {
             auto containerConfig = container.value(ContainerUtils::containerTypeToProtocolString(dockerContainer)).toObject();
             auto protocolConfig = containerConfig.value(configKey::lastConfig).toString();
             if (protocolConfig.isEmpty()) {
@@ -759,4 +759,3 @@ void ImportController::processAmneziaConfig(QJsonObject &config) const
         }
     }
 }
-

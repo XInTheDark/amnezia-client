@@ -252,6 +252,9 @@ PageType {
 
                 if (InstallController.defaultPort(defaultContainerProto) < 0) {
                     port.visible = false
+                } else if (ContainerProps.containerTypeToString(dockerContainer) === "udp2raw-wireguard" ||
+                           ContainerProps.containerTypeToString(dockerContainer) === "udp2raw-awg") {
+                    port.textField.text = "8443"
                 } else {
                     port.textField.text = InstallController.getPortForInstall(defaultContainerProto)
                 }

@@ -16,7 +16,10 @@ public:
     enum Roles {
         SubnetAddressRole = Qt::UserRole + 1,
         PortRole,
-        ClientMtuRole
+        ClientMtuRole,
+        Udp2RawPasswordRole,
+        Udp2RawRawModeRole,
+        IsUdp2RawRole
     };
 
     explicit WireGuardConfigModel(QObject *parent = nullptr);

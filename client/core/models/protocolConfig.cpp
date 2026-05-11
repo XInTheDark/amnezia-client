@@ -48,8 +48,14 @@ QString ProtocolConfig::port() const
     return std::visit([](auto&& arg) -> QString {
         using T = std::decay_t<decltype(arg)>;
         if constexpr (std::is_same_v<T, AwgProtocolConfig>) {
+            if (!arg.serverConfig.udp2rawPublicPort.isEmpty()) {
+                return arg.serverConfig.udp2rawPublicPort;
+            }
             return arg.serverConfig.port;
         } else if constexpr (std::is_same_v<T, WireGuardProtocolConfig>) {
+            if (!arg.serverConfig.udp2rawPublicPort.isEmpty()) {
+                return arg.serverConfig.udp2rawPublicPort;
+            }
             return arg.serverConfig.port;
         } else if constexpr (std::is_same_v<T, OpenVpnProtocolConfig>) {
             return arg.serverConfig.port;

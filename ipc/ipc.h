@@ -2,6 +2,7 @@
 #define IPC_H
 
 #include <QObject>
+#include <QRegularExpression>
 #include <QString>
 
 #include "../client/core/utils/utilities.h"
@@ -15,7 +16,8 @@ enum PermittedProcess {
     OpenVPN,
     Wireguard,
     Tun2Socks,
-    CertUtil
+    CertUtil,
+    Udp2Raw
 };
 
 inline QString permittedProcessPath(PermittedProcess pid)
@@ -29,6 +31,8 @@ inline QString permittedProcessPath(PermittedProcess pid)
             return Utils::certUtilPath();
         case PermittedProcess::Tun2Socks:
             return Utils::tun2socksPath();
+        case PermittedProcess::Udp2Raw:
+            return Utils::udp2rawExecPath();
         default:
             return "";
     }
@@ -60,6 +64,21 @@ inline QStringList sanitizeArguments(PermittedProcess proc, const QStringList &a
     case Tun2Socks:
         namedArgs["-device"] = [](const QString& v) { return v.startsWith("tun://"); };
         namedArgs["-proxy"] = [](const QString& v) { return v.startsWith("socks5://"); };
+        break;
+    case Udp2Raw:
+        namedArgs["-c"] = nullptr;
+        namedArgs["-l"] = [](const QString& v) {
+            const QRegularExpression re("^127\\.0\\.0\\.1:([1-9][0-9]{0,4})$");
+            const auto match = re.match(v);
+            return match.hasMatch() && match.captured(1).toInt() <= 65535;
+        };
+        namedArgs["-r"] = [](const QString& v) {
+            const QRegularExpression re("^([A-Za-z0-9_.:-]+):([1-9][0-9]{0,4})$");
+            const auto match = re.match(v);
+            return match.hasMatch() && match.captured(2).toInt() <= 65535 && !v.contains('\n') && !v.contains('\r');
+        };
+        namedArgs["-k"] = [](const QString& v) { return !v.isEmpty() && !v.contains('\n') && !v.contains('\r'); };
+        namedArgs["--raw-mode"] = [](const QString& v) { return v == "faketcp"; };
         break;
     default:
         //FIXME

@@ -16,9 +16,28 @@
 #include "core/models/protocols/socks5ProxyProtocolConfig.h"
 #include "core/models/protocols/ikev2ProtocolConfig.h"
 #include "core/models/protocols/torProtocolConfig.h"
+#include "core/utils/utilities.h"
+
+#include <QRandomGenerator>
 
 using namespace amnezia;
 using namespace ProtocolUtils;
+
+namespace
+{
+QString randomInternalPort(const QString &publicPort, const QString &fallbackPort)
+{
+    if (publicPort != fallbackPort) {
+        return fallbackPort;
+    }
+
+    int port = QRandomGenerator::global()->bounded(20000, 60999);
+    while (QString::number(port) == publicPort) {
+        port = QRandomGenerator::global()->bounded(20000, 60999);
+    }
+    return QString::number(port);
+}
+}
 
 InstallerBase::InstallerBase(QObject *parent)
     : QObject(parent)
@@ -52,15 +71,33 @@ ContainerConfig InstallerBase::createBaseConfig(DockerContainer container, int p
     switch (protocol) {
         case Proto::Awg: {
             AwgProtocolConfig awgConfig;
-            awgConfig.serverConfig.port = portStr;
-            awgConfig.serverConfig.transportProto = transportProtoStr;
+            if (container == DockerContainer::Udp2RawAwg) {
+                awgConfig.serverConfig.udp2rawPublicPort = portStr;
+                awgConfig.serverConfig.udp2rawInternalPort = randomInternalPort(portStr, protocols::awg::defaultPort);
+                awgConfig.serverConfig.udp2rawPassword = Utils::getRandomString(protocols::udp2raw::defaultPasswordLength);
+                awgConfig.serverConfig.udp2rawRawMode = protocols::udp2raw::defaultRawMode;
+                awgConfig.serverConfig.port = awgConfig.serverConfig.udp2rawInternalPort;
+                awgConfig.serverConfig.transportProto = "tcp";
+            } else {
+                awgConfig.serverConfig.port = portStr;
+                awgConfig.serverConfig.transportProto = transportProtoStr;
+            }
             config.protocolConfig = awgConfig;
             break;
         }
         case Proto::WireGuard: {
             WireGuardProtocolConfig wgConfig;
-            wgConfig.serverConfig.port = portStr;
-            wgConfig.serverConfig.transportProto = transportProtoStr;
+            if (container == DockerContainer::Udp2RawWireGuard) {
+                wgConfig.serverConfig.udp2rawPublicPort = portStr;
+                wgConfig.serverConfig.udp2rawInternalPort = randomInternalPort(portStr, protocols::wireguard::defaultPort);
+                wgConfig.serverConfig.udp2rawPassword = Utils::getRandomString(protocols::udp2raw::defaultPasswordLength);
+                wgConfig.serverConfig.udp2rawRawMode = protocols::udp2raw::defaultRawMode;
+                wgConfig.serverConfig.port = wgConfig.serverConfig.udp2rawInternalPort;
+                wgConfig.serverConfig.transportProto = "tcp";
+            } else {
+                wgConfig.serverConfig.port = portStr;
+                wgConfig.serverConfig.transportProto = transportProtoStr;
+            }
             config.protocolConfig = wgConfig;
             break;
         }
@@ -113,4 +150,3 @@ ContainerConfig InstallerBase::createBaseConfig(DockerContainer container, int p
     
     return config;
 }
-

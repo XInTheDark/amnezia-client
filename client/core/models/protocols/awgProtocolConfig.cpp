@@ -32,6 +32,18 @@ QJsonObject AwgServerConfig::toJson() const
     if (!subnetCidr.isEmpty()) {
         obj[configKey::subnetCidr] = subnetCidr;
     }
+    if (!udp2rawPublicPort.isEmpty()) {
+        obj[configKey::udp2rawPublicPort] = udp2rawPublicPort;
+    }
+    if (!udp2rawInternalPort.isEmpty()) {
+        obj[configKey::udp2rawInternalPort] = udp2rawInternalPort;
+    }
+    if (!udp2rawPassword.isEmpty()) {
+        obj[configKey::udp2rawPassword] = udp2rawPassword;
+    }
+    if (!udp2rawRawMode.isEmpty()) {
+        obj[configKey::udp2rawRawMode] = udp2rawRawMode;
+    }
     
     if (!junkPacketCount.isEmpty()) {
         obj[configKey::junkPacketCount] = junkPacketCount;
@@ -90,6 +102,10 @@ AwgServerConfig AwgServerConfig::fromJson(const QJsonObject& json)
     config.protocolVersion = json.value(configKey::protocolVersion).toString();
     config.subnetAddress = json.value(configKey::subnetAddress).toString();
     config.subnetCidr = json.value(configKey::subnetCidr).toString();
+    config.udp2rawPublicPort = json.value(configKey::udp2rawPublicPort).toString();
+    config.udp2rawInternalPort = json.value(configKey::udp2rawInternalPort).toString();
+    config.udp2rawPassword = json.value(configKey::udp2rawPassword).toString();
+    config.udp2rawRawMode = json.value(configKey::udp2rawRawMode).toString();
     
     config.junkPacketCount = json.value(configKey::junkPacketCount).toString();
     config.junkPacketMinSize = json.value(configKey::junkPacketMinSize).toString();
@@ -160,6 +176,24 @@ QJsonObject AwgClientConfig::toJson() const
     if (!mtu.isEmpty()) {
         obj[configKey::mtu] = mtu;
     }
+    if (!udp2rawPublicPort.isEmpty()) {
+        obj[configKey::udp2rawPublicPort] = udp2rawPublicPort;
+    }
+    if (!udp2rawInternalPort.isEmpty()) {
+        obj[configKey::udp2rawInternalPort] = udp2rawInternalPort;
+    }
+    if (!udp2rawPassword.isEmpty()) {
+        obj[configKey::udp2rawPassword] = udp2rawPassword;
+    }
+    if (!udp2rawRawMode.isEmpty()) {
+        obj[configKey::udp2rawRawMode] = udp2rawRawMode;
+    }
+    if (!udp2rawRemoteHost.isEmpty()) {
+        obj[configKey::udp2rawRemoteHost] = udp2rawRemoteHost;
+    }
+    if (!udp2rawRemotePort.isEmpty()) {
+        obj[configKey::udp2rawRemotePort] = udp2rawRemotePort;
+    }
     
     if (!junkPacketCount.isEmpty()) {
         obj[configKey::junkPacketCount] = junkPacketCount;
@@ -229,6 +263,12 @@ AwgClientConfig AwgClientConfig::fromJson(const QJsonObject& json)
     }
     config.persistentKeepAlive = json.value(configKey::persistentKeepAlive).toString();
     config.mtu = json.value(configKey::mtu).toString();
+    config.udp2rawPublicPort = json.value(configKey::udp2rawPublicPort).toString();
+    config.udp2rawInternalPort = json.value(configKey::udp2rawInternalPort).toString();
+    config.udp2rawPassword = json.value(configKey::udp2rawPassword).toString();
+    config.udp2rawRawMode = json.value(configKey::udp2rawRawMode).toString();
+    config.udp2rawRemoteHost = json.value(configKey::udp2rawRemoteHost).toString();
+    config.udp2rawRemotePort = json.value(configKey::udp2rawRemotePort).toString();
     
     config.junkPacketCount = json.value(configKey::junkPacketCount).toString();
     config.junkPacketMinSize = json.value(configKey::junkPacketMinSize).toString();
@@ -300,7 +340,11 @@ void AwgProtocolConfig::clearClientConfig()
 
 bool AwgServerConfig::hasEqualServerSettings(const AwgServerConfig& other) const
 {
-    if (subnetAddress != other.subnetAddress || port != other.port || 
+    if (subnetAddress != other.subnetAddress || port != other.port ||
+        udp2rawPublicPort != other.udp2rawPublicPort ||
+        udp2rawInternalPort != other.udp2rawInternalPort ||
+        udp2rawPassword != other.udp2rawPassword ||
+        udp2rawRawMode != other.udp2rawRawMode ||
         junkPacketCount != other.junkPacketCount ||
         junkPacketMinSize != other.junkPacketMinSize || junkPacketMaxSize != other.junkPacketMaxSize ||
         initPacketJunkSize != other.initPacketJunkSize || responsePacketJunkSize != other.responsePacketJunkSize ||
@@ -342,4 +386,3 @@ bool AwgProtocolConfig::isPacketSizeEqual(int s1, int s2, int s3, int s4)
 }
 
 } // namespace amnezia
-

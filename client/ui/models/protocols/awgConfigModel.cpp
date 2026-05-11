@@ -31,7 +31,13 @@ bool AwgConfigModel::setData(const QModelIndex &index, const QVariant &value, in
 
     switch (role) {
     case Roles::SubnetAddressRole: m_protocolConfig.serverConfig.subnetAddress = strValue; break;
-    case Roles::PortRole: m_protocolConfig.serverConfig.port = strValue; break;
+    case Roles::PortRole:
+        if (ContainerUtils::isUdp2RawContainer(m_container)) {
+            m_protocolConfig.serverConfig.udp2rawPublicPort = strValue;
+        } else {
+            m_protocolConfig.serverConfig.port = strValue;
+        }
+        break;
 
     case Roles::ClientMtuRole: m_protocolConfig.clientConfig->mtu = strValue; break;
     case Roles::ClientJunkPacketCountRole: m_protocolConfig.clientConfig->junkPacketCount = strValue; break;
@@ -74,7 +80,10 @@ QVariant AwgConfigModel::data(const QModelIndex &index, int role) const
 
     switch (role) {
     case Roles::SubnetAddressRole: return m_protocolConfig.serverConfig.subnetAddress;
-    case Roles::PortRole: return m_protocolConfig.serverConfig.port;
+    case Roles::PortRole:
+        return ContainerUtils::isUdp2RawContainer(m_container)
+            ? m_protocolConfig.serverConfig.udp2rawPublicPort
+            : m_protocolConfig.serverConfig.port;
 
     case Roles::ClientMtuRole: return m_protocolConfig.clientConfig->mtu;
     case Roles::ClientJunkPacketCountRole: return m_protocolConfig.clientConfig->junkPacketCount;
@@ -104,6 +113,9 @@ QVariant AwgConfigModel::data(const QModelIndex &index, int role) const
     case Roles::ServerSpecialJunk5Role: return m_protocolConfig.serverConfig.specialJunk5;
 
     case Roles::IsAwg2Role: return m_protocolConfig.serverConfig.protocolVersion == protocols::awg::awgV2;
+    case Roles::Udp2RawPasswordRole: return m_protocolConfig.serverConfig.udp2rawPassword;
+    case Roles::Udp2RawRawModeRole: return m_protocolConfig.serverConfig.udp2rawRawMode;
+    case Roles::IsUdp2RawRole: return ContainerUtils::isUdp2RawContainer(m_container);
     }
 
     return QVariant();
@@ -133,10 +145,25 @@ void AwgConfigModel::applyDefaultsToServerConfig(amnezia::AwgServerConfig& confi
     if (config.subnetAddress.isEmpty()) {
         config.subnetAddress = protocols::wireguard::defaultSubnetAddress;
     }
-    if (config.port.isEmpty()) {
+    if (ContainerUtils::isUdp2RawContainer(m_container)) {
+        if (config.udp2rawPublicPort.isEmpty()) {
+            config.udp2rawPublicPort = protocols::udp2raw::defaultPublicPort;
+        }
+        if (config.udp2rawInternalPort.isEmpty()) {
+            config.udp2rawInternalPort = protocols::awg::defaultPort;
+        }
+        if (config.port.isEmpty()) {
+            config.port = config.udp2rawInternalPort;
+        }
+        if (config.udp2rawRawMode.isEmpty()) {
+            config.udp2rawRawMode = protocols::udp2raw::defaultRawMode;
+        }
+    } else if (config.port.isEmpty()) {
         config.port = protocols::awg::defaultPort;
     }
-    if (config.transportProto.isEmpty()) {
+    if (ContainerUtils::isUdp2RawContainer(m_container)) {
+        config.transportProto = "tcp";
+    } else if (config.transportProto.isEmpty()) {
         config.transportProto = ProtocolUtils::transportProtoToString(
             ProtocolUtils::defaultTransportProto(amnezia::Proto::Awg), amnezia::Proto::Awg);
     }
@@ -316,7 +343,9 @@ QHash<int, QByteArray> AwgConfigModel::roleNames() const
     roles[ServerSpecialJunk5Role] = "serverSpecialJunk5";
 
     roles[IsAwg2Role] = "isAwg2";
+    roles[Udp2RawPasswordRole] = "udp2rawPassword";
+    roles[Udp2RawRawModeRole] = "udp2rawRawMode";
+    roles[IsUdp2RawRole] = "isUdp2Raw";
 
     return roles;
 }
-

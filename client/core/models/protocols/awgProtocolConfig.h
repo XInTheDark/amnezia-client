@@ -23,6 +23,10 @@ struct AwgServerConfig {
     QString protocolVersion;
     QString subnetAddress;
     QString subnetCidr;
+    QString udp2rawPublicPort;
+    QString udp2rawInternalPort;
+    QString udp2rawPassword;
+    QString udp2rawRawMode;
     QString junkPacketCount;
     QString junkPacketMinSize;
     QString junkPacketMaxSize;
@@ -60,6 +64,12 @@ struct AwgClientConfig {
     QStringList allowedIps;
     QString persistentKeepAlive;
     QString mtu;
+    QString udp2rawPublicPort;
+    QString udp2rawInternalPort;
+    QString udp2rawPassword;
+    QString udp2rawRawMode;
+    QString udp2rawRemoteHost;
+    QString udp2rawRemotePort;
     QString junkPacketCount;
     QString junkPacketMinSize;
     QString junkPacketMaxSize;
@@ -100,4 +110,3 @@ struct AwgProtocolConfig {
 } // namespace amnezia
 
 #endif // AWGPROTOCOLCONFIG_H
-

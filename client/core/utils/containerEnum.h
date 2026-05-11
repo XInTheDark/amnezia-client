@@ -14,6 +14,8 @@ namespace amnezia
             Awg,
             Awg2,
             WireGuard,
+            Udp2RawAwg,
+            Udp2RawWireGuard,
             OpenVpn,
             Ipsec,
             Xray,
@@ -32,5 +34,4 @@ namespace amnezia
 }
 
 #endif // CONTAINERENUM_H
-
 

@@ -132,6 +132,10 @@ void LocalSocketController::activate(const QJsonObject &rawConfig) {
   QJsonArray allowedDns = rawConfig.value(amnezia::configKey::allowedDnsServers).toArray();
 
   QJsonObject wgConfig = rawConfig.value(protocolName + "_config_data").toObject();
+  const QString endpointHost = wgConfig.value(amnezia::configKey::hostName).toString();
+  const QString transportHost = wgConfig.value(amnezia::configKey::udp2rawRemoteHost).toString().isEmpty()
+      ? endpointHost
+      : wgConfig.value(amnezia::configKey::udp2rawRemoteHost).toString();
 
   QJsonObject json;
   json.insert("type", "activate");
@@ -151,12 +155,12 @@ void LocalSocketController::activate(const QJsonObject &rawConfig) {
 
   json.insert("serverPublicKey", wgConfig.value(amnezia::configKey::serverPubKey));
   json.insert("serverPskKey", wgConfig.value(amnezia::configKey::pskKey));
-  json.insert("serverIpv4AddrIn", wgConfig.value(amnezia::configKey::hostName));
+  json.insert("serverIpv4AddrIn", endpointHost);
   //  json.insert("serverIpv6AddrIn", QJsonValue(hop.m_server.ipv6AddrIn()));
   json.insert("deviceMTU", wgConfig.value(amnezia::configKey::mtu));
 
   json.insert("serverPort", wgConfig.value(amnezia::configKey::port).toInt());
-  json.insert("serverIpv4Gateway", wgConfig.value(amnezia::configKey::hostName));
+  json.insert("serverIpv4Gateway", transportHost);
   //  json.insert("serverIpv6Gateway", QJsonValue(hop.m_server.ipv6Gateway()));
 
   json.insert("primaryDnsServer", rawConfig.value(amnezia::configKey::dns1));
@@ -230,7 +234,7 @@ void LocalSocketController::activate(const QJsonObject &rawConfig) {
   json.insert("allowedIPAddressRanges", jsAllowedIPAddesses);
 
   QJsonArray jsExcludedAddresses;
-  jsExcludedAddresses.append(wgConfig.value(amnezia::configKey::hostName));
+  jsExcludedAddresses.append(transportHost);
   if (splitTunnelType == 2) {
     for (auto v : splitTunnelSites) {
           QString ipRange = v.toString();

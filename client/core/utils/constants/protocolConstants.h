@@ -124,6 +124,15 @@ namespace amnezia
 
         }
 
+        namespace udp2raw
+        {
+            constexpr char defaultPublicPort[] = "8443";
+            constexpr char defaultRawMode[] = "faketcp";
+            constexpr int defaultPasswordLength = 32;
+            constexpr char appleSiliconHomebrewPath[] = "/opt/homebrew/opt/udp2raw-multiplatform/bin/udp2raw_mp";
+            constexpr char intelHomebrewPath[] = "/usr/local/opt/udp2raw-multiplatform/bin/udp2raw_mp";
+        }
+
         namespace sftp
         {
             constexpr char defaultUserName[] = "sftp_user";
@@ -178,5 +187,4 @@ namespace amnezia
 }
 
 #endif // PROTOCOLCONSTANTS_H
-
 

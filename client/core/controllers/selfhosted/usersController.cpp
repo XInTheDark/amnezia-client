@@ -75,7 +75,7 @@ void UsersController::migration(const QByteArray &clientsTableString, QJsonArray
 ErrorCode UsersController::wgShow(const DockerContainer container, const ServerCredentials &credentials,
                                              SshSession* sshSession, std::vector<WgShowData> &data)
 {
-    if (container != DockerContainer::WireGuard && !ContainerUtils::isAwgContainer(container)) {
+    if (!ContainerUtils::isWireGuardLikeContainer(container) && !ContainerUtils::isAwgContainer(container)) {
         return ErrorCode::NoError;
     }
 
@@ -86,7 +86,7 @@ ErrorCode UsersController::wgShow(const DockerContainer container, const ServerC
         return ErrorCode::NoError;
     };
 
-    QString showBin = (container == DockerContainer::Awg2)
+    QString showBin = (container == DockerContainer::Awg2 || container == DockerContainer::Udp2RawAwg)
                        ? QStringLiteral("awg")
                        : QStringLiteral("wg");
     const QString command = QString("sudo docker exec -i $CONTAINER_NAME bash -c '%1 show all'").arg(showBin);
@@ -192,7 +192,7 @@ ErrorCode UsersController::getWireGuardClients(const DockerContainer container, 
     QString configPath;
     if (container == DockerContainer::Awg) {
         configPath = QString::fromLatin1(protocols::awg::serverLegacyConfigPath);
-    } else if (container == DockerContainer::Awg2) {
+    } else if (container == DockerContainer::Awg2 || container == DockerContainer::Udp2RawAwg) {
         configPath = QString::fromLatin1(protocols::awg::serverConfigPath);
     } else {
         configPath = QString::fromLatin1(protocols::wireguard::serverConfigPath);
@@ -321,7 +321,7 @@ ErrorCode UsersController::updateClients(int serverIndex, const DockerContainer 
 
         if (container == DockerContainer::OpenVpn) {
             error = getOpenVpnClients(container, credentials, &sshSession, count, m_clientsTable);
-        } else if (container == DockerContainer::WireGuard || ContainerUtils::isAwgContainer(container)) {
+    } else if (ContainerUtils::isWireGuardLikeContainer(container) || ContainerUtils::isAwgContainer(container)) {
             error = getWireGuardClients(container, credentials, &sshSession, count, m_clientsTable);
         } else if (container == DockerContainer::Xray) {
             error = getXrayClients(container, credentials, &sshSession, count, m_clientsTable);
@@ -521,7 +521,7 @@ ErrorCode UsersController::revokeWireGuard(const int row, const DockerContainer 
     QString configPath;
     if (container == DockerContainer::Awg) {
         configPath = QString::fromLatin1(protocols::awg::serverLegacyConfigPath);
-    } else if (container == DockerContainer::Awg2) {
+    } else if (container == DockerContainer::Awg2 || container == DockerContainer::Udp2RawAwg) {
         configPath = QString::fromLatin1(protocols::awg::serverConfigPath);
     } else {
         configPath = QString::fromLatin1(protocols::wireguard::serverConfigPath);
@@ -566,7 +566,7 @@ ErrorCode UsersController::revokeWireGuard(const int row, const DockerContainer 
         return error;
     }
 
-    bool isAwg2 = (container == DockerContainer::Awg2);
+    bool isAwg2 = (container == DockerContainer::Awg2 || container == DockerContainer::Udp2RawAwg);
     QString command = isAwg2 ? QStringLiteral("awg") : QStringLiteral("wg");
     QString iface   = isAwg2 ? QStringLiteral("awg0") : QStringLiteral("wg0");
     QString script  = QString(
@@ -708,8 +708,10 @@ ErrorCode UsersController::revokeClient(int serverIndex, const int index, const 
             break;
         }
         case DockerContainer::WireGuard:
+        case DockerContainer::Udp2RawWireGuard:
         case DockerContainer::Awg:
-        case DockerContainer::Awg2: {
+        case DockerContainer::Awg2:
+        case DockerContainer::Udp2RawAwg: {
             errorCode = revokeWireGuard(index, container, credentials, &sshSession, m_clientsTable);
             break;
         }
@@ -756,8 +758,10 @@ ErrorCode UsersController::revokeClient(int serverIndex, const ContainerConfig &
     {
         case DockerContainer::OpenVpn:
         case DockerContainer::WireGuard:
+        case DockerContainer::Udp2RawWireGuard:
         case DockerContainer::Awg:
         case DockerContainer::Awg2:
+        case DockerContainer::Udp2RawAwg:
         case DockerContainer::Xray: {
             protocol = ContainerUtils::defaultProtocol(container);
             break;
@@ -782,8 +786,10 @@ ErrorCode UsersController::revokeClient(int serverIndex, const ContainerConfig &
         break;
     }
     case DockerContainer::WireGuard:
+    case DockerContainer::Udp2RawWireGuard:
     case DockerContainer::Awg:
-    case DockerContainer::Awg2: {
+    case DockerContainer::Awg2:
+    case DockerContainer::Udp2RawAwg: {
         errorCode = revokeWireGuard(row, container, credentials, &sshSession, m_clientsTable);
         break;
     }
@@ -804,4 +810,3 @@ ErrorCode UsersController::revokeClient(int serverIndex, const ContainerConfig &
 
     return errorCode;
 }
-

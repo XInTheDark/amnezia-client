@@ -29,8 +29,10 @@ QString amnezia::scriptFolder(amnezia::DockerContainer container)
     switch (container) {
     case DockerContainer::OpenVpn: return QLatin1String("openvpn");
     case DockerContainer::WireGuard: return QLatin1String("wireguard");
+    case DockerContainer::Udp2RawWireGuard: return QLatin1String("udp2raw_wireguard");
     case DockerContainer::Awg2: return QLatin1String("awg");
     case DockerContainer::Awg: return QLatin1String("awg_legacy");
+    case DockerContainer::Udp2RawAwg: return QLatin1String("udp2raw_awg");
     case DockerContainer::Ipsec: return QLatin1String("ipsec");
     case DockerContainer::Xray: return QLatin1String("xray");
 
@@ -137,7 +139,7 @@ amnezia::ScriptVars amnezia::genBaseVars(const ServerCredentials &credentials,
     vars.append({ { "$CONTAINER_NAME", ContainerUtils::containerToString(container) } });
     vars.append({ { "$DOCKERFILE_FOLDER", "/opt/amnezia/" + ContainerUtils::containerToString(container) } });
 
-    QString serverIp = (!ContainerUtils::isAwgContainer(container) && container != DockerContainer::WireGuard && container != DockerContainer::Xray)
+    QString serverIp = (!ContainerUtils::isAwgContainer(container) && !ContainerUtils::isWireGuardLikeContainer(container) && container != DockerContainer::Xray)
             ? NetworkUtilities::getIPAddress(credentials.hostName)
             : credentials.hostName;
     if (!serverIp.isEmpty()) {
@@ -220,6 +222,10 @@ amnezia::ScriptVars amnezia::genWireGuardVars(const ContainerConfig &containerCo
         vars.append({ { "$WIREGUARD_SUBNET_IP", config.subnetAddress.isEmpty() ? protocols::wireguard::defaultSubnetAddress : config.subnetAddress } });
         vars.append({ { "$WIREGUARD_SUBNET_CIDR", config.subnetCidr.isEmpty() ? protocols::wireguard::defaultSubnetCidr : config.subnetCidr } });
         vars.append({ { "$WIREGUARD_SERVER_PORT", config.port.isEmpty() ? protocols::wireguard::defaultPort : config.port } });
+        vars.append({ { "$UDP2RAW_PUBLIC_PORT", config.udp2rawPublicPort.isEmpty() ? protocols::udp2raw::defaultPublicPort : config.udp2rawPublicPort } });
+        vars.append({ { "$UDP2RAW_INTERNAL_PORT", config.udp2rawInternalPort.isEmpty() ? (config.port.isEmpty() ? protocols::wireguard::defaultPort : config.port) : config.udp2rawInternalPort } });
+        vars.append({ { "$UDP2RAW_PASSWORD", config.udp2rawPassword } });
+        vars.append({ { "$UDP2RAW_RAW_MODE", config.udp2rawRawMode.isEmpty() ? protocols::udp2raw::defaultRawMode : config.udp2rawRawMode } });
     }
     
     return vars;
@@ -235,6 +241,10 @@ amnezia::ScriptVars amnezia::genAwgVars(const ContainerConfig &containerConfig)
         vars.append({ { "$AWG_SUBNET_IP", config.subnetAddress.isEmpty() ? protocols::wireguard::defaultSubnetAddress : config.subnetAddress } });
         vars.append({ { "$WIREGUARD_SUBNET_CIDR", config.subnetCidr.isEmpty() ? protocols::wireguard::defaultSubnetCidr : config.subnetCidr } });
         vars.append({ { "$AWG_SERVER_PORT", config.port.isEmpty() ? protocols::awg::defaultPort : config.port } });
+        vars.append({ { "$UDP2RAW_PUBLIC_PORT", config.udp2rawPublicPort.isEmpty() ? protocols::udp2raw::defaultPublicPort : config.udp2rawPublicPort } });
+        vars.append({ { "$UDP2RAW_INTERNAL_PORT", config.udp2rawInternalPort.isEmpty() ? (config.port.isEmpty() ? protocols::awg::defaultPort : config.port) : config.udp2rawInternalPort } });
+        vars.append({ { "$UDP2RAW_PASSWORD", config.udp2rawPassword } });
+        vars.append({ { "$UDP2RAW_RAW_MODE", config.udp2rawRawMode.isEmpty() ? protocols::udp2raw::defaultRawMode : config.udp2rawRawMode } });
         vars.append({ { "$JUNK_PACKET_COUNT", config.junkPacketCount } });
         vars.append({ { "$JUNK_PACKET_MIN_SIZE", config.junkPacketMinSize } });
         vars.append({ { "$JUNK_PACKET_MAX_SIZE", config.junkPacketMaxSize } });

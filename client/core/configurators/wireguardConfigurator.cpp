@@ -114,6 +114,11 @@ WireguardConfigurator::ConnectionData WireguardConfigurator::prepareWireguardCon
     } else if (awgServerConfig && !awgServerConfig->port.isEmpty()) {
         portStr = awgServerConfig->port;
     }
+    if (serverConfig && !serverConfig->udp2rawPublicPort.isEmpty()) {
+        portStr = serverConfig->udp2rawPublicPort;
+    } else if (awgServerConfig && !awgServerConfig->udp2rawPublicPort.isEmpty()) {
+        portStr = awgServerConfig->udp2rawPublicPort;
+    }
     connData.port = portStr;
 
     if (connData.clientPrivKey.isEmpty() || connData.clientPubKey.isEmpty()) {
@@ -193,7 +198,7 @@ WireguardConfigurator::ConnectionData WireguardConfigurator::prepareWireguardCon
         return connData;
     }
 
-    bool isAwg = (container == DockerContainer::Awg2);
+    bool isAwg = (container == DockerContainer::Awg2 || container == DockerContainer::Udp2RawAwg);
     QString bin = isAwg ? QStringLiteral("awg") : QStringLiteral("wg");
     QString iface = isAwg ? QStringLiteral("awg0") : QStringLiteral("wg0");
     QString script = QString(
@@ -269,6 +274,14 @@ ProtocolConfig WireguardConfigurator::createConfig(const ServerCredentials &cred
     clientConfig.persistentKeepAlive = "25";
     clientConfig.mtu = mtu;
     clientConfig.isObfuscationEnabled = false;
+    if (wireguardServerConfig && !wireguardServerConfig->udp2rawPublicPort.isEmpty()) {
+        clientConfig.udp2rawPublicPort = wireguardServerConfig->udp2rawPublicPort;
+        clientConfig.udp2rawInternalPort = wireguardServerConfig->udp2rawInternalPort;
+        clientConfig.udp2rawPassword = wireguardServerConfig->udp2rawPassword;
+        clientConfig.udp2rawRawMode = wireguardServerConfig->udp2rawRawMode;
+        clientConfig.udp2rawRemoteHost = connData.host;
+        clientConfig.udp2rawRemotePort = wireguardServerConfig->udp2rawPublicPort;
+    }
     
     protocolConfig.setClientConfig(clientConfig);
     

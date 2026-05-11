@@ -1,6 +1,7 @@
 #include <QCoreApplication>
 #include <QDebug>
 #include <QDir>
+#include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QProcess>
@@ -10,6 +11,7 @@
 #include <QUrl>
 
 #include "core/utils/utilities.h"
+#include "core/utils/constants/protocolConstants.h"
 
 namespace
 {
@@ -275,6 +277,22 @@ QString Utils::wireguardExecPath()
 #else
     return {};
 #endif
+}
+
+QString Utils::udp2rawExecPath()
+{
+#ifdef Q_OS_MAC
+    const QString appleSiliconPath = QString::fromLatin1(amnezia::protocols::udp2raw::appleSiliconHomebrewPath);
+    if (QFileInfo::exists(appleSiliconPath)) {
+        return appleSiliconPath;
+    }
+
+    const QString intelPath = QString::fromLatin1(amnezia::protocols::udp2raw::intelHomebrewPath);
+    if (QFileInfo::exists(intelPath)) {
+        return intelPath;
+    }
+#endif
+    return {};
 }
 
 QString Utils::certUtilPath()

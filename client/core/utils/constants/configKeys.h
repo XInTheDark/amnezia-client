@@ -48,6 +48,13 @@ namespace amnezia
         constexpr QLatin1String allowedIps("allowed_ips");
         constexpr QLatin1String persistentKeepAlive("persistent_keep_alive");
 
+        constexpr QLatin1String udp2rawPublicPort("udp2raw_public_port");
+        constexpr QLatin1String udp2rawInternalPort("udp2raw_internal_port");
+        constexpr QLatin1String udp2rawPassword("udp2raw_password");
+        constexpr QLatin1String udp2rawRawMode("udp2raw_raw_mode");
+        constexpr QLatin1String udp2rawRemoteHost("udp2raw_remote_host");
+        constexpr QLatin1String udp2rawRemotePort("udp2raw_remote_port");
+
         constexpr QLatin1String clientIp("client_ip");
 
         constexpr QLatin1String site("site");

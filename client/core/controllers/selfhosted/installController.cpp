@@ -506,7 +506,7 @@ bool InstallController::isReinstallContainerRequired(DockerContainer container, 
         }
     }
 
-    if (container == DockerContainer::WireGuard) {
+    if (ContainerUtils::isWireGuardLikeContainer(container)) {
         const auto* oldWgConfig = oldConfig.getWireGuardProtocolConfig();
         const auto* newWgConfig = newConfig.getWireGuardProtocolConfig();
         
@@ -563,7 +563,7 @@ ErrorCode InstallController::installDockerWorker(const ServerCredentials &creden
 
     qDebug().noquote() << "InstallController::installDockerWorker" << stdOut;
 
-    if (container == DockerContainer::Awg2) {
+    if (container == DockerContainer::Awg2 || container == DockerContainer::Udp2RawAwg) {
         QRegularExpression regex(R"(Linux\s+(\d+)\.(\d+)[^\d]*)");
         QRegularExpressionMatch match = regex.match(stdOut);
         if (match.hasMatch()) {
@@ -765,7 +765,9 @@ QScopedPointer<InstallerBase> InstallController::createInstaller(DockerContainer
     switch (container) {
     case DockerContainer::Awg: return QScopedPointer<InstallerBase>(new AwgInstaller(this));
     case DockerContainer::Awg2: return QScopedPointer<InstallerBase>(new AwgInstaller(this));
+    case DockerContainer::Udp2RawAwg: return QScopedPointer<InstallerBase>(new AwgInstaller(this));
     case DockerContainer::WireGuard: return QScopedPointer<InstallerBase>(new WireguardInstaller(this));
+    case DockerContainer::Udp2RawWireGuard: return QScopedPointer<InstallerBase>(new WireguardInstaller(this));
     case DockerContainer::OpenVpn: return QScopedPointer<InstallerBase>(new OpenVpnInstaller(this));
     case DockerContainer::Xray:
     case DockerContainer::SSXray: return QScopedPointer<InstallerBase>(new XrayInstaller(this));
@@ -801,7 +803,7 @@ bool InstallController::isUpdateDockerContainerRequired(DockerContainer containe
                 return false;
             }
         }
-    } else if (container == DockerContainer::WireGuard) {
+    } else if (ContainerUtils::isWireGuardLikeContainer(container)) {
         const auto* oldWgConfig = oldConfig.getWireGuardProtocolConfig();
         const auto* newWgConfig = newConfig.getWireGuardProtocolConfig();
         

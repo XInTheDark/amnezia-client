@@ -105,7 +105,7 @@ PageType {
 
                 enabled: delegateItem.isEnabled
 
-                headerText: qsTr("Port")
+                headerText: isUdp2Raw ? qsTr("UDP2Raw public port") : qsTr("Port")
                 textField.text: port
                 textField.maximumLength: 5
                 textField.validator: IntValidator { bottom: 1; top: 65535 }
@@ -123,6 +123,32 @@ PageType {
                 }
 
                 checkEmptyText: true
+            }
+
+            TextFieldWithHeaderType {
+                Layout.fillWidth: true
+                Layout.topMargin: 16
+                Layout.leftMargin: 16
+                Layout.rightMargin: 16
+
+                visible: isUdp2Raw
+                enabled: false
+
+                headerText: qsTr("UDP2Raw secret")
+                textField.text: udp2rawPassword
+            }
+
+            TextFieldWithHeaderType {
+                Layout.fillWidth: true
+                Layout.topMargin: 16
+                Layout.leftMargin: 16
+                Layout.rightMargin: 16
+
+                visible: isUdp2Raw
+                enabled: false
+
+                headerText: qsTr("UDP2Raw raw mode")
+                textField.text: udp2rawRawMode
             }
 
             AwgTextField {

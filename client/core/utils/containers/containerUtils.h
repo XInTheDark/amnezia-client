@@ -44,6 +44,9 @@ namespace amnezia
         bool isShareable(DockerContainer container);
 
         bool isAwgContainer(DockerContainer container);
+        bool isUdp2RawContainer(DockerContainer container);
+        bool isWireGuardLikeContainer(DockerContainer container);
+        bool isAwgLikeContainer(DockerContainer container);
 
         QJsonObject getProtocolConfigFromContainer(const Proto protocol, const QJsonObject &containerConfig);
 
@@ -52,5 +55,4 @@ namespace amnezia
 }
 
 #endif // CONTAINERUTILS_H
-
 

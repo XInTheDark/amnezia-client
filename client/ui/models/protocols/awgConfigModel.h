@@ -45,7 +45,10 @@ public:
         ServerSpecialJunk4Role,
         ServerSpecialJunk5Role,
 
-        IsAwg2Role
+        IsAwg2Role,
+        Udp2RawPasswordRole,
+        Udp2RawRawModeRole,
+        IsUdp2RawRole
     };
 
     explicit AwgConfigModel(QObject *parent = nullptr);

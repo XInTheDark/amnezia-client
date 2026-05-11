@@ -15,6 +15,10 @@ struct WireGuardServerConfig {
     QString subnetAddress;
     QString subnetMask;
     QString subnetCidr;
+    QString udp2rawPublicPort;
+    QString udp2rawInternalPort;
+    QString udp2rawPassword;
+    QString udp2rawRawMode;
     bool isThirdPartyConfig = false;
     
     QJsonObject toJson() const;
@@ -36,6 +40,12 @@ struct WireGuardClientConfig {
     QStringList allowedIps;
     QString persistentKeepAlive;
     QString mtu;
+    QString udp2rawPublicPort;
+    QString udp2rawInternalPort;
+    QString udp2rawPassword;
+    QString udp2rawRawMode;
+    QString udp2rawRemoteHost;
+    QString udp2rawRemotePort;
     bool isObfuscationEnabled = false;
     
     QJsonObject toJson() const;
@@ -57,4 +67,3 @@ struct WireGuardProtocolConfig {
 } // namespace amnezia
 
 #endif // WIREGUARDPROTOCOLCONFIG_H
-

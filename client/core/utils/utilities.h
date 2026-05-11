@@ -32,6 +32,7 @@ public:
 
     static QString openVpnExecPath();
     static QString wireguardExecPath();
+    static QString udp2rawExecPath();
     static QString certUtilPath();
     static QString tun2socksPath();
 

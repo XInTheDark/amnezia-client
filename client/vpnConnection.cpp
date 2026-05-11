@@ -134,7 +134,7 @@ void VpnConnection::onConnectionStateChanged(Vpn::ConnectionState state)
                 flushDnsWatcher->deleteLater();
             });
 
-            if (!ContainerUtils::isAwgContainer(container) && container != DockerContainer::WireGuard) {
+            if (!ContainerUtils::isAwgContainer(container) && !ContainerUtils::isWireGuardLikeContainer(container)) {
                 QString dns1 = m_vpnConfiguration.value(configKey::dns1).toString();
                 QString dns2 = m_vpnConfiguration.value(configKey::dns2).toString();
 

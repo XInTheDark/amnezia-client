@@ -74,6 +74,14 @@ ProtocolConfig AwgConfigurator::createConfig(const ServerCredentials &credential
     newClientConfig.clientId = wgConfig->clientConfig->clientId;
     newClientConfig.allowedIps = wgConfig->clientConfig->allowedIps;
     newClientConfig.persistentKeepAlive = wgConfig->clientConfig->persistentKeepAlive;
+    if (serverConfig && !serverConfig->udp2rawPublicPort.isEmpty()) {
+        newClientConfig.udp2rawPublicPort = serverConfig->udp2rawPublicPort;
+        newClientConfig.udp2rawInternalPort = serverConfig->udp2rawInternalPort;
+        newClientConfig.udp2rawPassword = serverConfig->udp2rawPassword;
+        newClientConfig.udp2rawRawMode = serverConfig->udp2rawRawMode;
+        newClientConfig.udp2rawRemoteHost = wgConfig->clientConfig->hostName;
+        newClientConfig.udp2rawRemotePort = serverConfig->udp2rawPublicPort;
+    }
     
     QString mtu = protocols::awg::defaultMtu;
     if (clientConfig && !clientConfig->mtu.isEmpty()) {
@@ -96,7 +104,7 @@ ProtocolConfig AwgConfigurator::createConfig(const ServerCredentials &credential
     newClientConfig.specialJunk4 = configMap.value(configKey::specialJunk4);
     newClientConfig.specialJunk5 = configMap.value(configKey::specialJunk5);
     
-    if (container == DockerContainer::Awg2) {
+    if (container == DockerContainer::Awg2 || container == DockerContainer::Udp2RawAwg) {
         newClientConfig.cookieReplyPacketJunkSize = configMap.value(configKey::cookieReplyPacketJunkSize);
         newClientConfig.transportPacketJunkSize = configMap.value(configKey::transportPacketJunkSize);
     }

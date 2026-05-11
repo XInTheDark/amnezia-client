@@ -32,6 +32,18 @@ QJsonObject WireGuardServerConfig::toJson() const
     if (!subnetCidr.isEmpty()) {
         obj[configKey::subnetCidr] = subnetCidr;
     }
+    if (!udp2rawPublicPort.isEmpty()) {
+        obj[configKey::udp2rawPublicPort] = udp2rawPublicPort;
+    }
+    if (!udp2rawInternalPort.isEmpty()) {
+        obj[configKey::udp2rawInternalPort] = udp2rawInternalPort;
+    }
+    if (!udp2rawPassword.isEmpty()) {
+        obj[configKey::udp2rawPassword] = udp2rawPassword;
+    }
+    if (!udp2rawRawMode.isEmpty()) {
+        obj[configKey::udp2rawRawMode] = udp2rawRawMode;
+    }
     
     if (isThirdPartyConfig) {
         obj[configKey::isThirdPartyConfig] = isThirdPartyConfig;
@@ -49,6 +61,10 @@ WireGuardServerConfig WireGuardServerConfig::fromJson(const QJsonObject& json)
     config.subnetAddress = json.value(configKey::subnetAddress).toString();
     config.subnetMask = json.value(configKey::subnetMask).toString();
     config.subnetCidr = json.value(configKey::subnetCidr).toString();
+    config.udp2rawPublicPort = json.value(configKey::udp2rawPublicPort).toString();
+    config.udp2rawInternalPort = json.value(configKey::udp2rawInternalPort).toString();
+    config.udp2rawPassword = json.value(configKey::udp2rawPassword).toString();
+    config.udp2rawRawMode = json.value(configKey::udp2rawRawMode).toString();
     
     config.isThirdPartyConfig = json.value(configKey::isThirdPartyConfig).toBool(false);
     
@@ -57,7 +73,11 @@ WireGuardServerConfig WireGuardServerConfig::fromJson(const QJsonObject& json)
 
 bool WireGuardServerConfig::hasEqualServerSettings(const WireGuardServerConfig& other) const
 {
-    return subnetAddress == other.subnetAddress && port == other.port;
+    return subnetAddress == other.subnetAddress && port == other.port &&
+           udp2rawPublicPort == other.udp2rawPublicPort &&
+           udp2rawInternalPort == other.udp2rawInternalPort &&
+           udp2rawPassword == other.udp2rawPassword &&
+           udp2rawRawMode == other.udp2rawRawMode;
 }
 
 QJsonObject WireGuardClientConfig::toJson() const
@@ -105,6 +125,24 @@ QJsonObject WireGuardClientConfig::toJson() const
     if (!mtu.isEmpty()) {
         obj[configKey::mtu] = mtu;
     }
+    if (!udp2rawPublicPort.isEmpty()) {
+        obj[configKey::udp2rawPublicPort] = udp2rawPublicPort;
+    }
+    if (!udp2rawInternalPort.isEmpty()) {
+        obj[configKey::udp2rawInternalPort] = udp2rawInternalPort;
+    }
+    if (!udp2rawPassword.isEmpty()) {
+        obj[configKey::udp2rawPassword] = udp2rawPassword;
+    }
+    if (!udp2rawRawMode.isEmpty()) {
+        obj[configKey::udp2rawRawMode] = udp2rawRawMode;
+    }
+    if (!udp2rawRemoteHost.isEmpty()) {
+        obj[configKey::udp2rawRemoteHost] = udp2rawRemoteHost;
+    }
+    if (!udp2rawRemotePort.isEmpty()) {
+        obj[configKey::udp2rawRemotePort] = udp2rawRemotePort;
+    }
     
     if (isObfuscationEnabled) {
         obj[configKey::isObfuscationEnabled] = isObfuscationEnabled;
@@ -133,6 +171,12 @@ WireGuardClientConfig WireGuardClientConfig::fromJson(const QJsonObject& json)
     }
     config.persistentKeepAlive = json.value(configKey::persistentKeepAlive).toString();
     config.mtu = json.value(configKey::mtu).toString();
+    config.udp2rawPublicPort = json.value(configKey::udp2rawPublicPort).toString();
+    config.udp2rawInternalPort = json.value(configKey::udp2rawInternalPort).toString();
+    config.udp2rawPassword = json.value(configKey::udp2rawPassword).toString();
+    config.udp2rawRawMode = json.value(configKey::udp2rawRawMode).toString();
+    config.udp2rawRemoteHost = json.value(configKey::udp2rawRemoteHost).toString();
+    config.udp2rawRemotePort = json.value(configKey::udp2rawRemotePort).toString();
     
     config.isObfuscationEnabled = json.value(configKey::isObfuscationEnabled).toBool(false);
     
@@ -184,4 +228,3 @@ void WireGuardProtocolConfig::clearClientConfig()
 }
 
 } // namespace amnezia
-

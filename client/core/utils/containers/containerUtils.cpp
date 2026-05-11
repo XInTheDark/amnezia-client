@@ -25,6 +25,10 @@ QString ContainerUtils::containerToString(DockerContainer c)
         return "amnezia-awg";
     if (c == DockerContainer::Awg2)
         return "amnezia-awg2";
+    if (c == DockerContainer::Udp2RawWireGuard)
+        return "amnezia-udp2raw-wireguard";
+    if (c == DockerContainer::Udp2RawAwg)
+        return "amnezia-udp2raw-awg";
     QMetaEnum metaEnum = QMetaEnum::fromType<DockerContainer>();
     QString containerKey = metaEnum.valueToKey(static_cast<int>(c));
 
@@ -41,6 +45,10 @@ QString ContainerUtils::containerTypeToString(DockerContainer c)
         return "awg";
     if (c == DockerContainer::Awg2)
         return "awg";
+    if (c == DockerContainer::Udp2RawWireGuard)
+        return "udp2raw-wireguard";
+    if (c == DockerContainer::Udp2RawAwg)
+        return "udp2raw-awg";
     QMetaEnum metaEnum = QMetaEnum::fromType<DockerContainer>();
     QString containerKey = metaEnum.valueToKey(static_cast<int>(c));
 
@@ -63,8 +71,10 @@ QMap<DockerContainer, QString> ContainerUtils::containerHumanNames()
     return { { DockerContainer::None, "Not installed" },
              { DockerContainer::OpenVpn, "OpenVPN" },
              { DockerContainer::WireGuard, "WireGuard" },
+             { DockerContainer::Udp2RawWireGuard, "UDP2Raw (WireGuard)" },
              { DockerContainer::Awg, "AmneziaWG" },
              { DockerContainer::Awg2, "AmneziaWG" },
+             { DockerContainer::Udp2RawAwg, "UDP2Raw (AmneziaWG)" },
              { DockerContainer::Xray, "XRay" },
              { DockerContainer::Ipsec, QObject::tr("IPsec") },
              { DockerContainer::SSXray, "Shadowsocks"},
@@ -83,12 +93,16 @@ QMap<DockerContainer, QString> ContainerUtils::containerDescriptions()
              { DockerContainer::WireGuard,
                QObject::tr("WireGuard - popular VPN protocol with high performance, high speed and low power "
                            "consumption.") },
+             { DockerContainer::Udp2RawWireGuard,
+               QObject::tr("WireGuard wrapped in UDP2Raw faketcp transport for networks that block UDP tunnels.") },
              { DockerContainer::Awg,
                QObject::tr("AmneziaWG is a special protocol from Amnezia based on WireGuard. "
                            "It provides high connection speed and ensures stable operation even in the most challenging network conditions.") },
              { DockerContainer::Awg2,
                QObject::tr("AmneziaWG is a special protocol from Amnezia based on WireGuard. "
                            "It provides high connection speed and ensures stable operation even in the most challenging network conditions.") },
+             { DockerContainer::Udp2RawAwg,
+               QObject::tr("AmneziaWG wrapped in UDP2Raw faketcp transport for networks that block UDP tunnels.") },
              { DockerContainer::Xray,
                QObject::tr("XRay with REALITY masks VPN traffic as web traffic and protects against active probing. "
                            "It is highly resistant to detection and offers high speed.") },
@@ -129,6 +143,13 @@ QMap<DockerContainer, QString> ContainerUtils::containerDetailedDescriptions()
                       "* Minimal configuration required\n"
                       "* Easily detected by DPI systems (susceptible to blocking)\n"
                       "* Operates over UDP protocol") },
+        { DockerContainer::Udp2RawWireGuard,
+          QObject::tr("UDP2Raw (WireGuard) installs a normal WireGuard tunnel on the server and wraps its UDP endpoint with UDP2Raw faketcp transport. "
+                      "The macOS client starts udp2raw_mp locally and connects WireGuard through 127.0.0.1.\n"
+                      "\nFeatures:\n"
+                      "* Available in this build only on macOS desktop\n"
+                      "* Requires udp2raw-multiplatform from Homebrew on the client\n"
+                      "* Uses faketcp mode") },
         { DockerContainer::Awg2,
           QObject::tr("AmneziaWG is a modern VPN protocol based on WireGuard, "
                       "combining simplified architecture with high performance across all devices. "
@@ -141,6 +162,13 @@ QMap<DockerContainer, QString> ContainerUtils::containerDetailedDescriptions()
                       "* Minimal settings required\n"
                       "* Undetectable by traffic analysis systems (DPI)\n"
                       "* Operates over UDP protocol") },
+        { DockerContainer::Udp2RawAwg,
+          QObject::tr("UDP2Raw (AmneziaWG) installs a normal AmneziaWG tunnel on the server and wraps its UDP endpoint with UDP2Raw faketcp transport. "
+                      "The macOS client starts udp2raw_mp locally and connects AmneziaWG through 127.0.0.1.\n"
+                      "\nFeatures:\n"
+                      "* Available in this build only on macOS desktop\n"
+                      "* Requires udp2raw-multiplatform from Homebrew on the client\n"
+                      "* Uses faketcp mode") },
         { DockerContainer::Xray,
           QObject::tr("REALITY is an innovative protocol developed by the creators of XRay, designed specifically to combat high levels of internet censorship. "
                       "REALITY identifies censorship systems during the TLS handshake, "
@@ -187,8 +215,10 @@ Proto ContainerUtils::defaultProtocol(DockerContainer c)
     case DockerContainer::None: return Proto::Unknown;
     case DockerContainer::OpenVpn: return Proto::OpenVpn;
     case DockerContainer::WireGuard: return Proto::WireGuard;
+    case DockerContainer::Udp2RawWireGuard: return Proto::WireGuard;
     case DockerContainer::Awg2: return Proto::Awg;
     case DockerContainer::Awg: return Proto::Awg;
+    case DockerContainer::Udp2RawAwg: return Proto::Awg;
     case DockerContainer::Xray: return Proto::Xray;
     case DockerContainer::Ipsec: return Proto::Ikev2;
     case DockerContainer::SSXray: return Proto::SSXray;
@@ -213,12 +243,14 @@ QString ContainerUtils::containerTypeToProtocolString(DockerContainer c)
 bool ContainerUtils::isSupportedByCurrentPlatform(DockerContainer c)
 {
 #ifdef Q_OS_WINDOWS
-    return true;
+    return !isUdp2RawContainer(c);
 
 #elif defined(Q_OS_IOS)
     // Standard iOS build (without Network Extension limitations)
     switch (c) {
     case DockerContainer::WireGuard: return true;
+    case DockerContainer::Udp2RawWireGuard: return false;
+    case DockerContainer::Udp2RawAwg: return false;
     case DockerContainer::OpenVpn: return true;
     case DockerContainer::Awg2: return true;
     case DockerContainer::Awg: return true;
@@ -233,6 +265,8 @@ bool ContainerUtils::isSupportedByCurrentPlatform(DockerContainer c)
     switch (c) {
     case DockerContainer::OpenVpn: return true;
     case DockerContainer::WireGuard: return true;
+    case DockerContainer::Udp2RawWireGuard: return false;
+    case DockerContainer::Udp2RawAwg: return false;
     case DockerContainer::Awg2: return true;
     case DockerContainer::Awg: return true;
     case DockerContainer::Xray: return true;
@@ -244,6 +278,8 @@ bool ContainerUtils::isSupportedByCurrentPlatform(DockerContainer c)
 #elif defined(Q_OS_MAC)
     switch (c) {
     case DockerContainer::WireGuard: return true;
+    case DockerContainer::Udp2RawWireGuard: return true;
+    case DockerContainer::Udp2RawAwg: return true;
     case DockerContainer::Ipsec: return false;
     default: return true;
     }
@@ -251,6 +287,8 @@ bool ContainerUtils::isSupportedByCurrentPlatform(DockerContainer c)
 #elif defined(Q_OS_ANDROID)
     switch (c) {
     case DockerContainer::WireGuard: return true;
+    case DockerContainer::Udp2RawWireGuard: return false;
+    case DockerContainer::Udp2RawAwg: return false;
     case DockerContainer::OpenVpn: return true;
     case DockerContainer::Awg2: return true;
     case DockerContainer::Awg: return true;
@@ -261,6 +299,8 @@ bool ContainerUtils::isSupportedByCurrentPlatform(DockerContainer c)
 
 #elif defined(Q_OS_LINUX)
     switch (c) {
+    case DockerContainer::Udp2RawWireGuard: return false;
+    case DockerContainer::Udp2RawAwg: return false;
     case DockerContainer::Ipsec: return false;
     default: return true;
     }
@@ -324,7 +364,22 @@ bool ContainerUtils::isShareable(DockerContainer container)
 
 bool ContainerUtils::isAwgContainer(DockerContainer container)
 {
-    return container == DockerContainer::Awg || container == DockerContainer::Awg2;
+    return isAwgLikeContainer(container);
+}
+
+bool ContainerUtils::isUdp2RawContainer(DockerContainer container)
+{
+    return container == DockerContainer::Udp2RawWireGuard || container == DockerContainer::Udp2RawAwg;
+}
+
+bool ContainerUtils::isWireGuardLikeContainer(DockerContainer container)
+{
+    return container == DockerContainer::WireGuard || container == DockerContainer::Udp2RawWireGuard;
+}
+
+bool ContainerUtils::isAwgLikeContainer(DockerContainer container)
+{
+    return container == DockerContainer::Awg || container == DockerContainer::Awg2 || container == DockerContainer::Udp2RawAwg;
 }
 
 QJsonObject ContainerUtils::getProtocolConfigFromContainer(const Proto protocol, const QJsonObject &containerConfig)
@@ -342,12 +397,12 @@ int ContainerUtils::installPageOrder(DockerContainer container)
     switch (container) {
     case DockerContainer::OpenVpn: return 4;
     case DockerContainer::WireGuard: return 2;
+    case DockerContainer::Udp2RawWireGuard: return 5;
     case DockerContainer::Awg2: return 1;
+    case DockerContainer::Udp2RawAwg: return 6;
     case DockerContainer::Xray: return 3;
     case DockerContainer::Ipsec: return 7;
     case DockerContainer::SSXray: return 8;
     default: return 0;
     }
 }
-
-
