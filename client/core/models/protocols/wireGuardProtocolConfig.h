@@ -19,6 +19,7 @@ struct WireGuardServerConfig {
     QString udp2rawInternalPort;
     QString udp2rawPassword;
     QString udp2rawRawMode;
+    int udp2rawImplementationVersion = 0;
     bool isThirdPartyConfig = false;
     
     QJsonObject toJson() const;

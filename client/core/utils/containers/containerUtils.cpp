@@ -372,6 +372,11 @@ bool ContainerUtils::isUdp2RawContainer(DockerContainer container)
     return container == DockerContainer::Udp2RawWireGuard || container == DockerContainer::Udp2RawAwg;
 }
 
+bool ContainerUtils::isNativeHostContainer(DockerContainer container)
+{
+    return isUdp2RawContainer(container);
+}
+
 bool ContainerUtils::isWireGuardLikeContainer(DockerContainer container)
 {
     return container == DockerContainer::WireGuard || container == DockerContainer::Udp2RawWireGuard;

@@ -54,6 +54,7 @@ namespace amnezia
         constexpr QLatin1String udp2rawRawMode("udp2raw_raw_mode");
         constexpr QLatin1String udp2rawRemoteHost("udp2raw_remote_host");
         constexpr QLatin1String udp2rawRemotePort("udp2raw_remote_port");
+        constexpr QLatin1String udp2rawImplementationVersion("udp2raw_implementation_version");
 
         constexpr QLatin1String clientIp("client_ip");
 

@@ -8,6 +8,7 @@
 #include "ipc.h"
 
 #include <QFileInfo>
+#include <QHostInfo>
 #include <QJsonObject>
 #include <QProcess>
 #include <QThread>
@@ -20,6 +21,7 @@ namespace
 constexpr int kServiceReplyTimeoutMs = 5000;
 constexpr int kProcessReplicaTimeoutMs = 5000;
 constexpr int kUdp2RawStartupDelayMs = 250;
+constexpr int kUdp2RawProbeTimeoutMs = 5000;
 
 QString configValue(const QJsonObject &config, const QLatin1String &key, const QString &fallback = {})
 {
@@ -31,6 +33,38 @@ QString configValue(const QJsonObject &config, const QLatin1String &key, const Q
 Udp2RawProtocol::Udp2RawProtocol(const QJsonObject &configuration, QObject *parent)
     : WireguardProtocol(configuration, parent)
 {
+    m_probeTimeoutTimer.setSingleShot(true);
+    m_trafficProbeTimer.setSingleShot(true);
+    connect(&m_probeTimeoutTimer, &QTimer::timeout, this, [this]() {
+        if (!m_dnsProbeFinished) {
+            failPostHandshakeProbe(QStringLiteral("DNS probe timed out"));
+        }
+    });
+    connect(this, &VpnProtocol::connectionStateChanged, this, [this](Vpn::ConnectionState state) {
+        if (state == Vpn::ConnectionState::Connected && !m_probeStarted) {
+            qInfo() << "UDP2Raw stage: WG/AWG handshake complete";
+            startPostHandshakeProbes();
+        }
+        if ((state == Vpn::ConnectionState::Disconnected || state == Vpn::ConnectionState::Error) && m_udp2rawProcess && !m_stoppingUdp2raw) {
+            stopUdp2Raw();
+        }
+    });
+    connect(this, &VpnProtocol::bytesChanged, this, [this](quint64 receivedBytes, quint64 sentBytes) {
+        if (!m_probeStarted || connectionState() != Vpn::ConnectionState::Connected) {
+            return;
+        }
+        if (sentBytes > 0) {
+            m_probeTxObserved = true;
+        }
+        if (receivedBytes > 0) {
+            m_probeRxObserved = true;
+        }
+        if (m_probeTxObserved && m_probeRxObserved && !m_probeGrowthLogged) {
+            m_probeGrowthLogged = true;
+            qInfo() << "UDP2Raw stage: rx/tx growth observed";
+        }
+    });
+    connect(&m_trafficProbeTimer, &QTimer::timeout, this, &Udp2RawProtocol::finishTrafficProbe);
 }
 
 Udp2RawProtocol::~Udp2RawProtocol()
@@ -40,20 +74,32 @@ Udp2RawProtocol::~Udp2RawProtocol()
 
 ErrorCode Udp2RawProtocol::start()
 {
+    m_probeStarted = false;
+    m_dnsProbeFinished = false;
+    m_probeTxObserved = false;
+    m_probeRxObserved = false;
+    m_probeGrowthLogged = false;
+    m_probeTimeoutTimer.stop();
+    m_trafficProbeTimer.stop();
     const ErrorCode udp2rawError = startUdp2Raw();
     if (udp2rawError != ErrorCode::NoError) {
         return udp2rawError;
     }
 
+    qInfo() << "UDP2Raw stage: starting WG/AWG backend";
     const ErrorCode wireguardError = WireguardProtocol::start();
     if (wireguardError != ErrorCode::NoError) {
         stopUdp2Raw();
+    } else {
+        qInfo() << "UDP2Raw stage: WG/AWG backend start requested";
     }
     return wireguardError;
 }
 
 void Udp2RawProtocol::stop()
 {
+    m_probeTimeoutTimer.stop();
+    m_trafficProbeTimer.stop();
     WireguardProtocol::stop();
     stopUdp2Raw();
 }
@@ -137,6 +183,9 @@ ErrorCode Udp2RawProtocol::startUdp2Raw()
                                      "-r", QString("%1:%2").arg(remoteIp, remotePort),
                                      "-k", password,
                                      "--raw-mode", rawMode });
+    qInfo().noquote() << QString("UDP2Raw stage: starting local udp2raw_mp 127.0.0.1:%1 -> %2:%3")
+                             .arg(localPort)
+                             .arg(remoteIp, remotePort);
     m_udp2rawProcess->start();
 
     auto waitForStarted = m_udp2rawProcess->waitForStarted(kServiceReplyTimeoutMs);
@@ -147,6 +196,7 @@ ErrorCode Udp2RawProtocol::startUdp2Raw()
     }
 
     QThread::msleep(kUdp2RawStartupDelayMs);
+    qInfo() << "UDP2Raw stage: local UDP2Raw started";
 
     vpnConfigData[configKey::udp2rawRemoteHost] = remoteIp;
     vpnConfigData[configKey::udp2rawRemotePort] = remotePort;
@@ -158,6 +208,71 @@ ErrorCode Udp2RawProtocol::startUdp2Raw()
     return ErrorCode::NoError;
 }
 
+void Udp2RawProtocol::startPostHandshakeProbes()
+{
+    m_probeStarted = true;
+    m_probeTxObserved = false;
+    m_probeRxObserved = false;
+    m_probeGrowthLogged = false;
+    m_trafficProbeTimer.start(kUdp2RawProbeTimeoutMs);
+    qInfo() << "UDP2Raw stage: post-handshake probes started";
+
+#ifdef Q_OS_MAC
+    auto *ipProbe = new QProcess(this);
+    ipProbe->setProgram(QStringLiteral("/sbin/ping"));
+    ipProbe->setArguments({ QStringLiteral("-c"), QStringLiteral("1"), QStringLiteral("-W"), QStringLiteral("3000"),
+                            QStringLiteral("1.1.1.1") });
+    connect(ipProbe, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
+            [this, ipProbe](int exitCode, QProcess::ExitStatus exitStatus) {
+                ipProbe->deleteLater();
+                if (exitStatus != QProcess::NormalExit || exitCode != 0) {
+                    failPostHandshakeProbe(QStringLiteral("IP probe failed"));
+                    return;
+                }
+
+                qInfo() << "UDP2Raw stage: internet probe passed";
+                m_dnsProbeFinished = false;
+                m_probeTimeoutTimer.start(kUdp2RawProbeTimeoutMs);
+                QHostInfo::lookupHost(QStringLiteral("google.com"), this, [this](const QHostInfo &hostInfo) {
+                    m_dnsProbeFinished = true;
+                    m_probeTimeoutTimer.stop();
+                    if (hostInfo.error() != QHostInfo::NoError || hostInfo.addresses().isEmpty()) {
+                        failPostHandshakeProbe(QStringLiteral("DNS probe failed"));
+                        return;
+                    }
+                    qInfo() << "UDP2Raw stage: DNS probe passed";
+                });
+            });
+    ipProbe->start();
+#else
+    qDebug() << "UDP2Raw post-handshake probes are only enabled on macOS";
+#endif
+}
+
+void Udp2RawProtocol::failPostHandshakeProbe(const QString &reason)
+{
+    qCritical().noquote() << "UDP2Raw post-handshake probe failed:" << reason;
+    m_probeTimeoutTimer.stop();
+    m_trafficProbeTimer.stop();
+    WireguardProtocol::stop();
+    setLastError(ErrorCode::InternalError);
+}
+
+void Udp2RawProtocol::finishTrafficProbe()
+{
+    if (!m_probeStarted || connectionState() != Vpn::ConnectionState::Connected) {
+        return;
+    }
+
+    qInfo() << "UDP2Raw stage: traffic probe result"
+            << "txObserved=" << m_probeTxObserved
+            << "rxObserved=" << m_probeRxObserved;
+
+    if (m_probeTxObserved && !m_probeRxObserved) {
+        failPostHandshakeProbe(QStringLiteral("traffic probe saw tx growth but no rx growth"));
+    }
+}
+
 void Udp2RawProtocol::stopUdp2Raw()
 {
     if (!m_udp2rawProcess) {
@@ -166,6 +281,11 @@ void Udp2RawProtocol::stopUdp2Raw()
 
     m_stoppingUdp2raw = true;
     m_udp2rawProcess->blockSignals(true);
+    if (!m_udp2rawProcess->isReplicaValid()) {
+        m_udp2rawProcess.reset();
+        m_stoppingUdp2raw = false;
+        return;
+    }
 #ifndef Q_OS_WIN
     m_udp2rawProcess->terminate();
     auto waitForFinished = m_udp2rawProcess->waitForFinished(1000);

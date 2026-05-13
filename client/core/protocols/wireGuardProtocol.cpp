@@ -51,6 +51,11 @@ WireguardProtocol::WireguardProtocol(const QJsonObject &configuration, QObject *
                 m_statsTimer.stop();
                 setConnectionState(Vpn::ConnectionState::Disconnected);
             });
+    connect(m_impl.get(), &ControllerImpl::backendFailure, this,
+            [this]() {
+                m_statsTimer.stop();
+                setLastError(ErrorCode::InternalError);
+            });
     m_impl->initialize(nullptr, nullptr);
 }
 

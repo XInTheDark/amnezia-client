@@ -30,6 +30,58 @@
 
 using namespace amnezia;
 
+namespace
+{
+QString nativeContainerDir(DockerContainer container)
+{
+    return QStringLiteral("/opt/amnezia/%1").arg(ContainerUtils::containerToString(container));
+}
+
+QString nativeInterfaceName(DockerContainer container)
+{
+    return container == DockerContainer::Udp2RawAwg ? QStringLiteral("amnawg0") : QStringLiteral("amnwg0");
+}
+
+QString nativeConfigPath(DockerContainer container)
+{
+    return nativeContainerDir(container) +
+           (container == DockerContainer::Udp2RawAwg ? QStringLiteral("/awg/amnawg0.conf")
+                                                     : QStringLiteral("/wireguard/amnwg0.conf"));
+}
+
+QString nativePublicKeyPath(DockerContainer container)
+{
+    return nativeContainerDir(container) +
+           (container == DockerContainer::Udp2RawAwg ? QStringLiteral("/awg/wireguard_server_public_key.key")
+                                                     : QStringLiteral("/wireguard/wireguard_server_public_key.key"));
+}
+
+QString nativePskPath(DockerContainer container)
+{
+    return nativeContainerDir(container) +
+           (container == DockerContainer::Udp2RawAwg ? QStringLiteral("/awg/wireguard_psk.key")
+                                                     : QStringLiteral("/wireguard/wireguard_psk.key"));
+}
+
+QHostAddress nextClientAddress(const QList<QHostAddress> &usedIps, const QString &subnetAddress)
+{
+    quint32 candidate = QHostAddress(subnetAddress).toIPv4Address() + 2;
+    if (!usedIps.isEmpty()) {
+        candidate = usedIps.last().toIPv4Address() + 1;
+    }
+
+    for (int guard = 0; guard < 1024; ++guard) {
+        const quint8 lastOctet = static_cast<quint8>(candidate & 0xff);
+        if (lastOctet != 0 && lastOctet != 1 && lastOctet != 255) {
+            return QHostAddress(candidate);
+        }
+        ++candidate;
+    }
+
+    return QHostAddress();
+}
+}
+
 WireguardConfigurator::WireguardConfigurator(SshSession* sshSession, bool isAwg,
                                              QObject *parent)
     : ConfiguratorBase(sshSession, parent), m_isAwg(isAwg)
@@ -127,7 +179,10 @@ WireguardConfigurator::ConnectionData WireguardConfigurator::prepareWireguardCon
     }
 
     QString configPath = m_serverConfigPath;
-    if (container == DockerContainer::Awg) {
+    const bool isNativeUdp2Raw = ContainerUtils::isNativeHostContainer(container);
+    if (isNativeUdp2Raw) {
+        configPath = nativeConfigPath(container);
+    } else if (container == DockerContainer::Awg) {
         configPath = amnezia::protocols::awg::serverLegacyConfigPath;
     }
     QString getIpsScript = QString("cat %1 | grep AllowedIPs").arg(configPath);
@@ -137,47 +192,38 @@ WireguardConfigurator::ConnectionData WireguardConfigurator::prepareWireguardCon
         return ErrorCode::NoError;
     };
 
-    errorCode = m_sshSession->runContainerScript(credentials, container, getIpsScript, cbReadStdOut);
+    if (isNativeUdp2Raw) {
+        errorCode = m_sshSession->runScript(credentials, QStringLiteral("sudo %1").arg(getIpsScript), cbReadStdOut);
+    } else {
+        errorCode = m_sshSession->runContainerScript(credentials, container, getIpsScript, cbReadStdOut);
+    }
     if (errorCode != ErrorCode::NoError) {
         return connData;
     }
     auto ips = getIpsFromConf(stdOut);
 
-    QHostAddress nextIp = [&] {
-        QHostAddress result;
-        QHostAddress lastIp;
-        QString subnetAddress = protocols::wireguard::defaultSubnetAddress;
-        if (serverConfig && !serverConfig->subnetAddress.isEmpty()) {
-            subnetAddress = serverConfig->subnetAddress;
-        } else if (awgServerConfig && !awgServerConfig->subnetAddress.isEmpty()) {
-            subnetAddress = awgServerConfig->subnetAddress;
-        }
-        if (ips.empty()) {
-            lastIp.setAddress(subnetAddress);
-        } else {
-            lastIp = ips.last();
-        }
-        quint8 lastOctet = static_cast<quint8>(lastIp.toIPv4Address());
-        switch (lastOctet) {
-        case 254: result.setAddress(lastIp.toIPv4Address() + 3); break;
-        case 255: result.setAddress(lastIp.toIPv4Address() + 2); break;
-        default: result.setAddress(lastIp.toIPv4Address() + 1); break;
-        }
-
-        return result;
-    }();
+    QString subnetAddress = protocols::wireguard::defaultSubnetAddress;
+    if (serverConfig && !serverConfig->subnetAddress.isEmpty()) {
+        subnetAddress = serverConfig->subnetAddress;
+    } else if (awgServerConfig && !awgServerConfig->subnetAddress.isEmpty()) {
+        subnetAddress = awgServerConfig->subnetAddress;
+    }
+    QHostAddress nextIp = nextClientAddress(ips, subnetAddress);
 
     connData.clientIP = nextIp.toString();
 
     // Get keys
-    connData.serverPubKey =
-            m_sshSession->getTextFileFromContainer(container, credentials, m_serverPublicKeyPath, errorCode);
+    connData.serverPubKey = isNativeUdp2Raw
+            ? m_sshSession->getTextFileFromHost(credentials, nativePublicKeyPath(container), errorCode)
+            : m_sshSession->getTextFileFromContainer(container, credentials, m_serverPublicKeyPath, errorCode);
     connData.serverPubKey.replace("\n", "");
     if (errorCode != ErrorCode::NoError) {
         return connData;
     }
 
-    connData.pskKey = m_sshSession->getTextFileFromContainer(container, credentials, m_serverPskKeyPath, errorCode);
+    connData.pskKey = isNativeUdp2Raw
+            ? m_sshSession->getTextFileFromHost(credentials, nativePskPath(container), errorCode)
+            : m_sshSession->getTextFileFromContainer(container, credentials, m_serverPskKeyPath, errorCode);
     connData.pskKey.replace("\n", "");
 
     if (errorCode != ErrorCode::NoError) {
@@ -191,8 +237,14 @@ WireguardConfigurator::ConnectionData WireguardConfigurator::prepareWireguardCon
                                  "AllowedIPs = %3/32\n\n")
                                  .arg(connData.clientPubKey, connData.pskKey, connData.clientIP);
 
-    errorCode = m_sshSession->uploadTextFileToContainer(container, credentials, configPart, configPath,
-                                                              libssh::ScpOverwriteMode::ScpAppendToExisting);
+    if (isNativeUdp2Raw) {
+        const QString appendScript = QStringLiteral("cat <<'EOF' | sudo tee -a %1 >/dev/null\n%2EOF\n")
+                                             .arg(configPath, configPart);
+        errorCode = m_sshSession->runHostScript(credentials, appendScript);
+    } else {
+        errorCode = m_sshSession->uploadTextFileToContainer(container, credentials, configPart, configPath,
+                                                                  libssh::ScpOverwriteMode::ScpAppendToExisting);
+    }
 
     if (errorCode != ErrorCode::NoError) {
         return connData;
@@ -200,9 +252,10 @@ WireguardConfigurator::ConnectionData WireguardConfigurator::prepareWireguardCon
 
     bool isAwg = (container == DockerContainer::Awg2 || container == DockerContainer::Udp2RawAwg);
     QString bin = isAwg ? QStringLiteral("awg") : QStringLiteral("wg");
-    QString iface = isAwg ? QStringLiteral("awg0") : QStringLiteral("wg0");
-    QString script = QString(
-        "sudo docker exec -i $CONTAINER_NAME bash -c '%1 syncconf %2 <(%1-quick strip %3)'").arg(bin, iface, configPath);
+    QString iface = isNativeUdp2Raw ? nativeInterfaceName(container) : (isAwg ? QStringLiteral("awg0") : QStringLiteral("wg0"));
+    QString script = isNativeUdp2Raw
+            ? QString("sudo bash -c '%1 syncconf %2 <(%1-quick strip %3)'").arg(bin, iface, configPath)
+            : QString("sudo docker exec -i $CONTAINER_NAME bash -c '%1 syncconf %2 <(%1-quick strip %3)'").arg(bin, iface, configPath);
 
     errorCode = m_sshSession->runScript(
             credentials,

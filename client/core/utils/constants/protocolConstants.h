@@ -126,6 +126,7 @@ namespace amnezia
 
         namespace udp2raw
         {
+            constexpr int nativeHostImplementationVersion = 2;
             constexpr char defaultPublicPort[] = "8443";
             constexpr char defaultRawMode[] = "faketcp";
             constexpr int defaultPasswordLength = 32;
@@ -187,4 +188,3 @@ namespace amnezia
 }
 
 #endif // PROTOCOLCONSTANTS_H
-

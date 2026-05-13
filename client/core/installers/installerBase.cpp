@@ -76,6 +76,7 @@ ContainerConfig InstallerBase::createBaseConfig(DockerContainer container, int p
                 awgConfig.serverConfig.udp2rawInternalPort = randomInternalPort(portStr, protocols::awg::defaultPort);
                 awgConfig.serverConfig.udp2rawPassword = Utils::getRandomString(protocols::udp2raw::defaultPasswordLength);
                 awgConfig.serverConfig.udp2rawRawMode = protocols::udp2raw::defaultRawMode;
+                awgConfig.serverConfig.udp2rawImplementationVersion = protocols::udp2raw::nativeHostImplementationVersion;
                 awgConfig.serverConfig.port = awgConfig.serverConfig.udp2rawInternalPort;
                 awgConfig.serverConfig.transportProto = "tcp";
             } else {
@@ -92,6 +93,7 @@ ContainerConfig InstallerBase::createBaseConfig(DockerContainer container, int p
                 wgConfig.serverConfig.udp2rawInternalPort = randomInternalPort(portStr, protocols::wireguard::defaultPort);
                 wgConfig.serverConfig.udp2rawPassword = Utils::getRandomString(protocols::udp2raw::defaultPasswordLength);
                 wgConfig.serverConfig.udp2rawRawMode = protocols::udp2raw::defaultRawMode;
+                wgConfig.serverConfig.udp2rawImplementationVersion = protocols::udp2raw::nativeHostImplementationVersion;
                 wgConfig.serverConfig.port = wgConfig.serverConfig.udp2rawInternalPort;
                 wgConfig.serverConfig.transportProto = "tcp";
             } else {

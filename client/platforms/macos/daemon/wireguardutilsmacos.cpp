@@ -179,15 +179,13 @@ bool WireguardUtilsMacos::deleteInterface() {
     m_rtmonitor = nullptr;
   }
 
-  if (m_tunnel.state() == QProcess::NotRunning) {
-    return false;
-  }
-
-  // Attempt to terminate gracefully.
-  m_tunnel.terminate();
-  if (!m_tunnel.waitForFinished(WG_TUN_PROC_TIMEOUT)) {
-    m_tunnel.kill();
-    m_tunnel.waitForFinished(WG_TUN_PROC_TIMEOUT);
+  if (m_tunnel.state() != QProcess::NotRunning) {
+    // Attempt to terminate gracefully.
+    m_tunnel.terminate();
+    if (!m_tunnel.waitForFinished(WG_TUN_PROC_TIMEOUT)) {
+      m_tunnel.kill();
+      m_tunnel.waitForFinished(WG_TUN_PROC_TIMEOUT);
+    }
   }
 
   // Garbage collect.

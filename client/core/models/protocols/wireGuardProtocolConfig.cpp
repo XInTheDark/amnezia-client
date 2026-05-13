@@ -44,6 +44,9 @@ QJsonObject WireGuardServerConfig::toJson() const
     if (!udp2rawRawMode.isEmpty()) {
         obj[configKey::udp2rawRawMode] = udp2rawRawMode;
     }
+    if (udp2rawImplementationVersion > 0) {
+        obj[configKey::udp2rawImplementationVersion] = udp2rawImplementationVersion;
+    }
     
     if (isThirdPartyConfig) {
         obj[configKey::isThirdPartyConfig] = isThirdPartyConfig;
@@ -65,6 +68,7 @@ WireGuardServerConfig WireGuardServerConfig::fromJson(const QJsonObject& json)
     config.udp2rawInternalPort = json.value(configKey::udp2rawInternalPort).toString();
     config.udp2rawPassword = json.value(configKey::udp2rawPassword).toString();
     config.udp2rawRawMode = json.value(configKey::udp2rawRawMode).toString();
+    config.udp2rawImplementationVersion = json.value(configKey::udp2rawImplementationVersion).toInt(0);
     
     config.isThirdPartyConfig = json.value(configKey::isThirdPartyConfig).toBool(false);
     
@@ -77,7 +81,8 @@ bool WireGuardServerConfig::hasEqualServerSettings(const WireGuardServerConfig& 
            udp2rawPublicPort == other.udp2rawPublicPort &&
            udp2rawInternalPort == other.udp2rawInternalPort &&
            udp2rawPassword == other.udp2rawPassword &&
-           udp2rawRawMode == other.udp2rawRawMode;
+           udp2rawRawMode == other.udp2rawRawMode &&
+           udp2rawImplementationVersion == other.udp2rawImplementationVersion;
 }
 
 QJsonObject WireGuardClientConfig::toJson() const

@@ -12,6 +12,33 @@
 using namespace amnezia;
 using namespace ProtocolUtils;
 
+namespace
+{
+QString nativeContainerDir(DockerContainer container)
+{
+    return QStringLiteral("/opt/amnezia/%1").arg(ContainerUtils::containerToString(container));
+}
+
+QString nativeWireGuardConfigPath(DockerContainer container)
+{
+    return nativeContainerDir(container) + QStringLiteral("/wireguard/amnwg0.conf");
+}
+
+QMap<QString, QString> parseEnvFile(const QString &env)
+{
+    QMap<QString, QString> values;
+    const QStringList lines = env.split('\n');
+    for (const QString &line : lines) {
+        const int pos = line.indexOf('=');
+        if (pos <= 0) {
+            continue;
+        }
+        values.insert(line.left(pos).trimmed(), line.mid(pos + 1).trimmed());
+    }
+    return values;
+}
+}
+
 WireguardInstaller::WireguardInstaller(QObject *parent)
     : InstallerBase(parent)
 {
@@ -22,8 +49,12 @@ ErrorCode WireguardInstaller::extractConfigFromContainer(DockerContainer contain
 {
     ErrorCode errorCode = ErrorCode::NoError;
     
-    QString serverConfig = sshSession->getTextFileFromContainer(container, credentials,
-                                                                      protocols::wireguard::serverConfigPath, errorCode);
+    const bool isNativeUdp2Raw = container == DockerContainer::Udp2RawWireGuard;
+    const QString configPath = isNativeUdp2Raw ? nativeWireGuardConfigPath(container)
+                                               : QString::fromLatin1(protocols::wireguard::serverConfigPath);
+    QString serverConfig = isNativeUdp2Raw
+            ? sshSession->getTextFileFromHost(credentials, configPath, errorCode)
+            : sshSession->getTextFileFromContainer(container, credentials, configPath, errorCode);
     if (errorCode != ErrorCode::NoError) {
         return errorCode;
     }
@@ -46,25 +77,22 @@ ErrorCode WireguardInstaller::extractConfigFromContainer(DockerContainer contain
         wgConfig->serverConfig.subnetAddress = serverConfigMap.value("Address").remove("/24");
         if (container == DockerContainer::Udp2RawWireGuard) {
             ErrorCode envError = ErrorCode::NoError;
-            QString udp2rawEnv = sshSession->getTextFileFromContainer(container, credentials, "/opt/amnezia/udp2raw.env", envError);
+            QString udp2rawEnv = sshSession->getTextFileFromHost(credentials, nativeContainerDir(container) + QStringLiteral("/udp2raw.env"), envError);
             if (envError == ErrorCode::NoError) {
-                const auto envLines = udp2rawEnv.split("\n");
-                for (const QString &line : envLines) {
-                    const QStringList parts = line.split("=");
-                    if (parts.size() != 2) {
-                        continue;
-                    }
-                    if (parts[0] == "UDP2RAW_PUBLIC_PORT") {
-                        wgConfig->serverConfig.udp2rawPublicPort = parts[1].trimmed();
-                    } else if (parts[0] == "UDP2RAW_INTERNAL_PORT") {
-                        wgConfig->serverConfig.udp2rawInternalPort = parts[1].trimmed();
-                        wgConfig->serverConfig.port = parts[1].trimmed();
-                    } else if (parts[0] == "UDP2RAW_PASSWORD") {
-                        wgConfig->serverConfig.udp2rawPassword = parts[1].trimmed();
-                    } else if (parts[0] == "UDP2RAW_RAW_MODE") {
-                        wgConfig->serverConfig.udp2rawRawMode = parts[1].trimmed();
-                    }
+                const QMap<QString, QString> env = parseEnvFile(udp2rawEnv);
+                if (env.value(QStringLiteral("UDP2RAW_IMPL_VERSION")).toInt() != protocols::udp2raw::nativeHostImplementationVersion) {
+                    return ErrorCode::ServerContainerMissingError;
                 }
+                wgConfig->serverConfig.udp2rawPublicPort = env.value(QStringLiteral("UDP2RAW_PUBLIC_PORT"));
+                wgConfig->serverConfig.udp2rawInternalPort = env.value(QStringLiteral("UDP2RAW_INTERNAL_PORT"));
+                wgConfig->serverConfig.port = wgConfig->serverConfig.udp2rawInternalPort;
+                wgConfig->serverConfig.udp2rawPassword = env.value(QStringLiteral("UDP2RAW_PASSWORD"));
+                wgConfig->serverConfig.udp2rawRawMode = env.value(QStringLiteral("UDP2RAW_RAW_MODE"));
+                wgConfig->serverConfig.udp2rawImplementationVersion = protocols::udp2raw::nativeHostImplementationVersion;
+                wgConfig->serverConfig.subnetAddress = env.value(QStringLiteral("WIREGUARD_SUBNET_IP"), wgConfig->serverConfig.subnetAddress);
+                wgConfig->serverConfig.subnetCidr = env.value(QStringLiteral("WIREGUARD_SUBNET_CIDR"), wgConfig->serverConfig.subnetCidr);
+            } else {
+                return ErrorCode::ServerContainerMissingError;
             }
         }
     }

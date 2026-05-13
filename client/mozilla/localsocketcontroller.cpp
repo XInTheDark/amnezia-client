@@ -9,6 +9,7 @@
 #include <QDateTime>
 #include <QDebug>
 #include <QDir>
+#include <QEventLoop>
 #include <QFileInfo>
 #include <QHostAddress>
 #include <QJsonArray>
@@ -34,6 +35,7 @@ constexpr int MAX_CONNECTION_RETRY = 10;
 
 // How long do we wait between one try and the next one.
 constexpr int CONNECTION_RETRY_TIMER_MSEC = 500;
+constexpr int DISCONNECT_ACK_TIMEOUT_MSEC = 5000;
 
 namespace {
 Logger logger("LocalSocketController");
@@ -310,8 +312,25 @@ void LocalSocketController::deactivate() {
 
   QJsonObject json;
   json.insert("type", "deactivate");
+
+  bool acked = false;
+  QEventLoop waitLoop;
+  QTimer timeout;
+  timeout.setSingleShot(true);
+  connect(this, &LocalSocketController::disconnected, &waitLoop, [&] {
+    acked = true;
+    waitLoop.quit();
+  });
+  connect(&timeout, &QTimer::timeout, &waitLoop, &QEventLoop::quit);
+
   write(json);
-  emit disconnected();
+  timeout.start(DISCONNECT_ACK_TIMEOUT_MSEC);
+  waitLoop.exec();
+
+  if (!acked) {
+    logger.warning() << "Timed out waiting for daemon disconnect acknowledgement";
+    disconnectInternal();
+  }
 }
 
 void LocalSocketController::checkStatus() {
@@ -532,6 +551,9 @@ void LocalSocketController::parseCommand(const QByteArray& command) {
         Q_ASSERT(false);
         break;
     }
+    disconnectInternal();
+    emit backendFailure();
+    return;
   }
 
   if (type == "logs") {

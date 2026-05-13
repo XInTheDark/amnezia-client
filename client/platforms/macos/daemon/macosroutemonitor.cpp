@@ -512,6 +512,11 @@ bool MacosRouteMonitor::deleteRoute(const IPAddress& prefix, int flags) {
 bool MacosRouteMonitor::addExclusionRoute(const IPAddress& prefix) {
   logger.debug() << "Adding exclusion route for" << prefix.toString();
 
+  if (prefix.address().isLoopback()) {
+    logger.warning() << "Ignoring loopback exclusion route";
+    return true;
+  }
+
   if (m_exclusionRoutes.contains(prefix)) {
     logger.warning() << "Exclusion route already exists";
     return false;
@@ -536,6 +541,11 @@ bool MacosRouteMonitor::addExclusionRoute(const IPAddress& prefix) {
 
 bool MacosRouteMonitor::deleteExclusionRoute(const IPAddress& prefix) {
   logger.debug() << "Deleting exclusion route for" << prefix.toString();
+
+  if (prefix.address().isLoopback()) {
+    logger.warning() << "Ignoring loopback exclusion route deletion";
+    return true;
+  }
 
   m_exclusionRoutes.removeAll(prefix);
   if (prefix.address().protocol() == QAbstractSocket::IPv4Protocol) {

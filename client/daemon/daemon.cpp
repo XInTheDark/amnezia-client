@@ -446,22 +446,20 @@ bool Daemon::deactivate(bool emitSignals)
 
     m_handshakeTimer.stop();
     m_handshakeElapsedTimer.invalidate();
+    bool ok = true;
 
     // Deactivate the main interface.
     if (!m_connections.isEmpty()) {
         const ConnectionState &state = m_connections.first();
         if (!run(Down, state.m_config)) {
-            return false;
+            ok = false;
         }
-    }
-
-    if (emitSignals) {
-        emit disconnected();
     }
 
     // Cleanup DNS
     if (!dnsutils()->restoreResolvers()) {
         logger.warning() << "Failed to restore DNS resolvers.";
+        ok = false;
     }
 
     // Cleanup peers and routing
@@ -469,20 +467,26 @@ bool Daemon::deactivate(bool emitSignals)
         const InterfaceConfig &config = state.m_config;
         logger.debug() << "Deleting routes for" << config.m_hopType;
         for (const IPAddress &ip : config.m_allowedIPAddressRanges) {
-            wgutils()->deleteRoutePrefix(ip);
+            ok = wgutils()->deleteRoutePrefix(ip) && ok;
         }
-        wgutils()->deletePeer(config);
+        ok = wgutils()->deletePeer(config) && ok;
     }
 
     // Cleanup routing for excluded addresses.
     for (auto iterator = m_excludedAddrSet.constBegin(); iterator != m_excludedAddrSet.constEnd(); ++iterator) {
-        wgutils()->deleteExclusionRoute(iterator.key());
+        ok = wgutils()->deleteExclusionRoute(iterator.key()) && ok;
     }
     m_excludedAddrSet.clear();
 
     m_connections.clear();
     // Delete the interface
-    return wgutils()->deleteInterface();
+    ok = wgutils()->deleteInterface() && ok;
+
+    if (emitSignals) {
+        emit disconnected();
+    }
+
+    return ok;
 }
 
 QString Daemon::logs()

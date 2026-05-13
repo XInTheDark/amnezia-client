@@ -226,6 +226,7 @@ amnezia::ScriptVars amnezia::genWireGuardVars(const ContainerConfig &containerCo
         vars.append({ { "$UDP2RAW_INTERNAL_PORT", config.udp2rawInternalPort.isEmpty() ? (config.port.isEmpty() ? protocols::wireguard::defaultPort : config.port) : config.udp2rawInternalPort } });
         vars.append({ { "$UDP2RAW_PASSWORD", config.udp2rawPassword } });
         vars.append({ { "$UDP2RAW_RAW_MODE", config.udp2rawRawMode.isEmpty() ? protocols::udp2raw::defaultRawMode : config.udp2rawRawMode } });
+        vars.append({ { "$UDP2RAW_IMPL_VERSION", QString::number(protocols::udp2raw::nativeHostImplementationVersion) } });
     }
     
     return vars;
@@ -245,6 +246,7 @@ amnezia::ScriptVars amnezia::genAwgVars(const ContainerConfig &containerConfig)
         vars.append({ { "$UDP2RAW_INTERNAL_PORT", config.udp2rawInternalPort.isEmpty() ? (config.port.isEmpty() ? protocols::awg::defaultPort : config.port) : config.udp2rawInternalPort } });
         vars.append({ { "$UDP2RAW_PASSWORD", config.udp2rawPassword } });
         vars.append({ { "$UDP2RAW_RAW_MODE", config.udp2rawRawMode.isEmpty() ? protocols::udp2raw::defaultRawMode : config.udp2rawRawMode } });
+        vars.append({ { "$UDP2RAW_IMPL_VERSION", QString::number(protocols::udp2raw::nativeHostImplementationVersion) } });
         vars.append({ { "$JUNK_PACKET_COUNT", config.junkPacketCount } });
         vars.append({ { "$JUNK_PACKET_MIN_SIZE", config.junkPacketMinSize } });
         vars.append({ { "$JUNK_PACKET_MAX_SIZE", config.junkPacketMaxSize } });

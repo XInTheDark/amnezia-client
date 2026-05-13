@@ -20,6 +20,33 @@
 using namespace amnezia;
 using namespace ProtocolUtils;
 
+namespace
+{
+QString nativeContainerDir(DockerContainer container)
+{
+    return QStringLiteral("/opt/amnezia/%1").arg(ContainerUtils::containerToString(container));
+}
+
+QString nativeAwgConfigPath(DockerContainer container)
+{
+    return nativeContainerDir(container) + QStringLiteral("/awg/amnawg0.conf");
+}
+
+QMap<QString, QString> parseEnvFile(const QString &env)
+{
+    QMap<QString, QString> values;
+    const QStringList lines = env.split('\n');
+    for (const QString &line : lines) {
+        const int pos = line.indexOf('=');
+        if (pos <= 0) {
+            continue;
+        }
+        values.insert(line.left(pos).trimmed(), line.mid(pos + 1).trimmed());
+    }
+    return values;
+}
+}
+
 AwgInstaller::AwgInstaller(QObject *parent)
     : InstallerBase(parent)
 {
@@ -142,9 +169,13 @@ ErrorCode AwgInstaller::extractConfigFromContainer(DockerContainer container, co
     QString configPath = protocols::awg::serverConfigPath;
     if (container == DockerContainer::Awg) {
         configPath = protocols::awg::serverLegacyConfigPath;
+    } else if (container == DockerContainer::Udp2RawAwg) {
+        configPath = nativeAwgConfigPath(container);
     }
     
-    QString serverConfig = sshSession->getTextFileFromContainer(container, credentials, configPath, errorCode);
+    QString serverConfig = container == DockerContainer::Udp2RawAwg
+            ? sshSession->getTextFileFromHost(credentials, configPath, errorCode)
+            : sshSession->getTextFileFromContainer(container, credentials, configPath, errorCode);
     if (errorCode != ErrorCode::NoError) {
         return errorCode;
     }
@@ -195,25 +226,22 @@ ErrorCode AwgInstaller::extractConfigFromContainer(DockerContainer container, co
         }
         if (container == DockerContainer::Udp2RawAwg) {
             ErrorCode envError = ErrorCode::NoError;
-            QString udp2rawEnv = sshSession->getTextFileFromContainer(container, credentials, "/opt/amnezia/udp2raw.env", envError);
+            QString udp2rawEnv = sshSession->getTextFileFromHost(credentials, nativeContainerDir(container) + QStringLiteral("/udp2raw.env"), envError);
             if (envError == ErrorCode::NoError) {
-                const auto envLines = udp2rawEnv.split("\n");
-                for (const QString &line : envLines) {
-                    const QStringList parts = line.split("=");
-                    if (parts.size() != 2) {
-                        continue;
-                    }
-                    if (parts[0] == "UDP2RAW_PUBLIC_PORT") {
-                        awgConfig->serverConfig.udp2rawPublicPort = parts[1].trimmed();
-                    } else if (parts[0] == "UDP2RAW_INTERNAL_PORT") {
-                        awgConfig->serverConfig.udp2rawInternalPort = parts[1].trimmed();
-                        awgConfig->serverConfig.port = parts[1].trimmed();
-                    } else if (parts[0] == "UDP2RAW_PASSWORD") {
-                        awgConfig->serverConfig.udp2rawPassword = parts[1].trimmed();
-                    } else if (parts[0] == "UDP2RAW_RAW_MODE") {
-                        awgConfig->serverConfig.udp2rawRawMode = parts[1].trimmed();
-                    }
+                const QMap<QString, QString> env = parseEnvFile(udp2rawEnv);
+                if (env.value(QStringLiteral("UDP2RAW_IMPL_VERSION")).toInt() != protocols::udp2raw::nativeHostImplementationVersion) {
+                    return ErrorCode::ServerContainerMissingError;
                 }
+                awgConfig->serverConfig.udp2rawPublicPort = env.value(QStringLiteral("UDP2RAW_PUBLIC_PORT"));
+                awgConfig->serverConfig.udp2rawInternalPort = env.value(QStringLiteral("UDP2RAW_INTERNAL_PORT"));
+                awgConfig->serverConfig.port = awgConfig->serverConfig.udp2rawInternalPort;
+                awgConfig->serverConfig.udp2rawPassword = env.value(QStringLiteral("UDP2RAW_PASSWORD"));
+                awgConfig->serverConfig.udp2rawRawMode = env.value(QStringLiteral("UDP2RAW_RAW_MODE"));
+                awgConfig->serverConfig.udp2rawImplementationVersion = protocols::udp2raw::nativeHostImplementationVersion;
+                awgConfig->serverConfig.subnetAddress = env.value(QStringLiteral("AWG_SUBNET_IP"), awgConfig->serverConfig.subnetAddress);
+                awgConfig->serverConfig.subnetCidr = env.value(QStringLiteral("WIREGUARD_SUBNET_CIDR"), awgConfig->serverConfig.subnetCidr);
+            } else {
+                return ErrorCode::ServerContainerMissingError;
             }
         }
     }

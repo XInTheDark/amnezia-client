@@ -27,6 +27,7 @@ struct AwgServerConfig {
     QString udp2rawInternalPort;
     QString udp2rawPassword;
     QString udp2rawRawMode;
+    int udp2rawImplementationVersion = 0;
     QString junkPacketCount;
     QString junkPacketMinSize;
     QString junkPacketMaxSize;

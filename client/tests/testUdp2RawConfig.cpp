@@ -1,4 +1,5 @@
 #include <QJsonObject>
+#include <QFile>
 #include <QTest>
 
 #include "core/models/containerConfig.h"
@@ -16,6 +17,17 @@ using namespace amnezia;
 class TestUdp2RawConfig : public QObject
 {
     Q_OBJECT
+
+private:
+    QString readScript(const QString &path)
+    {
+        QFile file(path);
+        if (!file.open(QIODevice::ReadOnly)) {
+            QTest::qFail(qPrintable(QStringLiteral("Unable to open %1").arg(path)), __FILE__, __LINE__);
+            return {};
+        }
+        return QString::fromUtf8(file.readAll());
+    }
 
 private slots:
     void testContainerStringParsing()
@@ -44,6 +56,7 @@ private slots:
         protocolConfig.serverConfig.udp2rawInternalPort = QStringLiteral("60850");
         protocolConfig.serverConfig.udp2rawPassword = QStringLiteral("secret");
         protocolConfig.serverConfig.udp2rawRawMode = QString::fromLatin1(protocols::udp2raw::defaultRawMode);
+        protocolConfig.serverConfig.udp2rawImplementationVersion = protocols::udp2raw::nativeHostImplementationVersion;
 
         WireGuardClientConfig clientConfig;
         clientConfig.hostName = QStringLiteral("127.0.0.1");
@@ -72,6 +85,7 @@ private slots:
         QCOMPARE(restoredProtocol->serverConfig.udp2rawInternalPort, QStringLiteral("60850"));
         QCOMPARE(restoredProtocol->serverConfig.udp2rawPassword, QStringLiteral("secret"));
         QCOMPARE(restoredProtocol->serverConfig.udp2rawRawMode, QStringLiteral("faketcp"));
+        QCOMPARE(restoredProtocol->serverConfig.udp2rawImplementationVersion, protocols::udp2raw::nativeHostImplementationVersion);
         QVERIFY(restoredProtocol->clientConfig.has_value());
         QCOMPARE(restoredProtocol->clientConfig->hostName, QStringLiteral("127.0.0.1"));
         QCOMPARE(restoredProtocol->clientConfig->port, 3333);
@@ -88,6 +102,7 @@ private slots:
         protocolConfig.serverConfig.udp2rawInternalPort = QStringLiteral("51820");
         protocolConfig.serverConfig.udp2rawPassword = QStringLiteral("secret");
         protocolConfig.serverConfig.udp2rawRawMode = QString::fromLatin1(protocols::udp2raw::defaultRawMode);
+        protocolConfig.serverConfig.udp2rawImplementationVersion = protocols::udp2raw::nativeHostImplementationVersion;
 
         AwgClientConfig clientConfig;
         clientConfig.hostName = QStringLiteral("127.0.0.1");
@@ -117,11 +132,43 @@ private slots:
         QCOMPARE(restoredProtocol->serverConfig.udp2rawInternalPort, QStringLiteral("51820"));
         QCOMPARE(restoredProtocol->serverConfig.udp2rawPassword, QStringLiteral("secret"));
         QCOMPARE(restoredProtocol->serverConfig.udp2rawRawMode, QStringLiteral("faketcp"));
+        QCOMPARE(restoredProtocol->serverConfig.udp2rawImplementationVersion, protocols::udp2raw::nativeHostImplementationVersion);
         QVERIFY(restoredProtocol->clientConfig.has_value());
         QCOMPARE(restoredProtocol->clientConfig->hostName, QStringLiteral("127.0.0.1"));
         QCOMPARE(restoredProtocol->clientConfig->port, 3333);
         QCOMPARE(restoredProtocol->clientConfig->udp2rawRemoteHost, QStringLiteral("64.235.43.101"));
         QCOMPARE(restoredProtocol->clientConfig->udp2rawRemotePort, QStringLiteral("8443"));
+    }
+
+    void testNativeHostServerScriptInvariants()
+    {
+        const QString wgConfigure = readScript(QStringLiteral(":/server_scripts/udp2raw_wireguard/configure_container.sh"));
+        const QString awgConfigure = readScript(QStringLiteral(":/server_scripts/udp2raw_awg/configure_container.sh"));
+        const QString removeScript = readScript(QStringLiteral(":/server_scripts/remove_container.sh"));
+
+        for (const QString &script : { wgConfigure, awgConfigure }) {
+            QVERIFY(script.contains(QStringLiteral("UDP2RAW_IMPL_VERSION=$IMPL_VERSION")));
+            QVERIFY(script.contains(QStringLiteral("systemctl enable --now")));
+            QVERIFY(script.contains(QStringLiteral("server_diagnostics.sh")));
+            QVERIFY(script.contains(QStringLiteral("chown -R root:root \"$BASE_DIR\"")));
+            QVERIFY(script.contains(QStringLiteral("-l \"0.0.0.0:$UDP2RAW_PUBLIC_PORT\"")));
+            QVERIFY(script.contains(QStringLiteral("-r \"127.0.0.1:$UDP2RAW_INTERNAL_PORT\"")));
+            QVERIFY(script.contains(QStringLiteral("-p tcp --dport \"$UDP2RAW_PUBLIC_PORT\" -j ACCEPT")));
+            QVERIFY(script.contains(QStringLiteral("-p udp --dport \"$UDP2RAW_INTERNAL_PORT\" -j DROP")));
+            QVERIFY(script.contains(QStringLiteral("net.ipv4.ip_forward=1")));
+            QVERIFY(script.contains(QStringLiteral("MASQUERADE")));
+            QVERIFY(!script.contains(QStringLiteral("docker run")));
+            QVERIFY(!script.contains(QStringLiteral("docker exec")));
+            QVERIFY(!script.contains(QStringLiteral("--cipher-mode none")));
+            QVERIFY(!script.contains(QStringLiteral("--auth-mode none")));
+            QVERIFY(!script.contains(QStringLiteral("--sock-buf")));
+        }
+
+        QVERIFY(wgConfigure.contains(QStringLiteral("IFACE=\"amnwg0\"")));
+        QVERIFY(wgConfigure.contains(QStringLiteral("Address = $SERVER_INTERFACE_IP/$SUBNET_CIDR")));
+        QVERIFY(awgConfigure.contains(QStringLiteral("IFACE=\"amnawg0\"")));
+        QVERIFY(awgConfigure.contains(QStringLiteral("Address = $SERVER_INTERFACE_IP/$SUBNET_CIDR")));
+        QVERIFY(removeScript.contains(QStringLiteral("sudo test -x /opt/amnezia/$CONTAINER_NAME/remove.sh")));
     }
 };
 

@@ -113,6 +113,22 @@ ErrorCode SshSession::runContainerScript(const ServerCredentials &credentials, D
     return e;
 }
 
+ErrorCode SshSession::runHostScript(const ServerCredentials &credentials, QString script,
+                                    const std::function<ErrorCode(const QString &, libssh::Client &)> &cbReadStdOut,
+                                    const std::function<ErrorCode(const QString &, libssh::Client &)> &cbReadStdErr)
+{
+    const QString fileName = QString("/tmp/amnezia-%1.sh").arg(Utils::getRandomString(16));
+
+    ErrorCode e = uploadFileToHost(credentials, script.toUtf8(), fileName);
+    if (e)
+        return e;
+
+    e = runScript(credentials, QString("sudo bash %1").arg(fileName), cbReadStdOut, cbReadStdErr);
+    runScript(credentials, QString("sudo rm -f %1").arg(fileName));
+
+    return e;
+}
+
 ErrorCode SshSession::uploadTextFileToContainer(DockerContainer container, const ServerCredentials &credentials, const QString &file,
                                                 const QString &path, libssh::ScpOverwriteMode overwriteMode)
 {
@@ -177,6 +193,22 @@ QByteArray SshSession::getTextFileFromContainer(DockerContainer container, const
     errorCode = ErrorCode::NoError;
 
     QString script = QStringLiteral("sudo docker exec -i %1 sh -c \"xxd -p '%2'\"").arg(ContainerUtils::containerToString(container), path);
+
+    QString stdOut;
+    auto cbReadStdOut = [&](const QString &data, libssh::Client &) {
+        stdOut += data;
+        return ErrorCode::NoError;
+    };
+
+    errorCode = runScript(credentials, script, cbReadStdOut);
+    return QByteArray::fromHex(stdOut.toUtf8());
+}
+
+QByteArray SshSession::getTextFileFromHost(const ServerCredentials &credentials, const QString &path, ErrorCode &errorCode)
+{
+    errorCode = ErrorCode::NoError;
+
+    QString script = QStringLiteral("sudo sh -c \"test -f '%1' || exit 0; xxd -p '%1'\"").arg(path);
 
     QString stdOut;
     auto cbReadStdOut = [&](const QString &data, libssh::Client &) {

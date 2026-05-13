@@ -31,6 +31,10 @@ MacOSDaemon::MacOSDaemon() : Daemon(nullptr) {
   m_wgutils = new WireguardUtilsMacos(this);
   m_dnsutils = new DnsUtilsMacos(this);
   m_iputils = new IPUtilsMacos(this);
+  connect(m_wgutils, &WireguardUtilsMacos::backendFailure, this, [this] {
+    deactivate(true);
+    emit backendFailure();
+  });
 
   Q_ASSERT(s_daemon == nullptr);
   s_daemon = this;

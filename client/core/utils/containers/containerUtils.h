@@ -45,6 +45,7 @@ namespace amnezia
 
         bool isAwgContainer(DockerContainer container);
         bool isUdp2RawContainer(DockerContainer container);
+        bool isNativeHostContainer(DockerContainer container);
         bool isWireGuardLikeContainer(DockerContainer container);
         bool isAwgLikeContainer(DockerContainer container);
 
@@ -55,4 +56,3 @@ namespace amnezia
 }
 
 #endif // CONTAINERUTILS_H
-

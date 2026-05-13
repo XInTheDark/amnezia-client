@@ -54,6 +54,37 @@ using namespace ProtocolUtils;
 namespace
 {
     Logger logger("InstallController");
+
+    constexpr char kUdp2RawEnvPath[] = "/opt/amnezia/%1/udp2raw.env";
+
+    QString nativeHostContainerDir(DockerContainer container)
+    {
+        return QStringLiteral("/opt/amnezia/%1").arg(ContainerUtils::containerToString(container));
+    }
+
+    QString nativeHostEnvPath(DockerContainer container)
+    {
+        return QString::fromLatin1(kUdp2RawEnvPath).arg(ContainerUtils::containerToString(container));
+    }
+
+    QMap<QString, QString> parseEnvFile(const QString &env)
+    {
+        QMap<QString, QString> values;
+        const QStringList lines = env.split('\n');
+        for (const QString &line : lines) {
+            const int pos = line.indexOf('=');
+            if (pos <= 0) {
+                continue;
+            }
+            values.insert(line.left(pos).trimmed(), line.mid(pos + 1).trimmed());
+        }
+        return values;
+    }
+
+    bool hasNativeUdp2RawMarker(const QMap<QString, QString> &env)
+    {
+        return env.value(QStringLiteral("UDP2RAW_IMPL_VERSION")).toInt() == protocols::udp2raw::nativeHostImplementationVersion;
+    }
 }
 
 InstallController::InstallController(SecureServersRepository *serversRepository,
@@ -86,10 +117,12 @@ ErrorCode InstallController::setupContainer(const ServerCredentials &credentials
     if (e)
         return e;
 
-    e = installDockerWorker(credentials, container, sshSession);
-    if (e)
-        return e;
-    qDebug().noquote() << "InstallController::setupContainer installDockerWorker finished";
+    if (!ContainerUtils::isNativeHostContainer(container)) {
+        e = installDockerWorker(credentials, container, sshSession);
+        if (e)
+            return e;
+        qDebug().noquote() << "InstallController::setupContainer installDockerWorker finished";
+    }
 
     if (!isUpdate) {
         e = isServerPortBusy(credentials, container, config, sshSession);
@@ -123,8 +156,10 @@ ErrorCode InstallController::setupContainer(const ServerCredentials &credentials
         return e;
     qDebug().noquote() << "InstallController::setupContainer configureContainerWorker finished";
 
-    setupServerFirewall(credentials, sshSession);
-    qDebug().noquote() << "InstallController::setupContainer setupServerFirewall finished";
+    if (!ContainerUtils::isNativeHostContainer(container)) {
+        setupServerFirewall(credentials, sshSession);
+        qDebug().noquote() << "InstallController::setupContainer setupServerFirewall finished";
+    }
 
     return startupContainerWorker(credentials, container, config, sshSession);
 }
@@ -286,6 +321,10 @@ ErrorCode InstallController::processContainerForAdmin(DockerContainer container,
 
 ErrorCode InstallController::buildContainerWorker(const ServerCredentials &credentials, DockerContainer container, const ContainerConfig &config, SshSession &sshSession)
 {
+    if (ContainerUtils::isNativeHostContainer(container)) {
+        return ErrorCode::NoError;
+    }
+
     amnezia::ScriptVars baseVars = amnezia::genBaseVars(credentials, container, QString(), QString());
     
     QString dockerfilePath = "/opt/amnezia/" + ContainerUtils::containerToString(container) + "/Dockerfile";
@@ -329,6 +368,10 @@ ErrorCode InstallController::buildContainerWorker(const ServerCredentials &crede
 
 ErrorCode InstallController::runContainerWorker(const ServerCredentials &credentials, DockerContainer container, ContainerConfig &config, SshSession &sshSession)
 {
+    if (ContainerUtils::isNativeHostContainer(container)) {
+        return ErrorCode::NoError;
+    }
+
     QString stdOut;
     auto cbReadStdOut = [&](const QString &data, libssh::Client &) {
         stdOut += data + "\n";
@@ -367,10 +410,13 @@ ErrorCode InstallController::configureContainerWorker(const ServerCredentials &c
     amnezia::ScriptVars baseVars = amnezia::genBaseVars(credentials, container, QString(), QString());
     amnezia::ScriptVars protocolVars = amnezia::genProtocolVarsForContainer(container, config);
     baseVars.append(protocolVars);
-    ErrorCode e = sshSession.runContainerScript(
-            credentials, container,
-            sshSession.replaceVars(amnezia::scriptData(ProtocolScriptType::configure_container, container), baseVars),
-            cbReadStdOut, cbReadStdErr);
+    ErrorCode e = ErrorCode::NoError;
+    const QString script = sshSession.replaceVars(amnezia::scriptData(ProtocolScriptType::configure_container, container), baseVars);
+    if (ContainerUtils::isNativeHostContainer(container)) {
+        e = sshSession.runHostScript(credentials, script, cbReadStdOut, cbReadStdErr);
+    } else {
+        e = sshSession.runContainerScript(credentials, container, script, cbReadStdOut, cbReadStdErr);
+    }
 
     updateContainerConfigAfterInstallation(container, config, stdOut);
 
@@ -388,6 +434,12 @@ ErrorCode InstallController::startupContainerWorker(const ServerCredentials &cre
     amnezia::ScriptVars baseVars = amnezia::genBaseVars(credentials, container, QString(), QString());
     amnezia::ScriptVars protocolVars = amnezia::genProtocolVarsForContainer(container, config);
     baseVars.append(protocolVars);
+
+    if (ContainerUtils::isNativeHostContainer(container)) {
+        const QString path = nativeHostContainerDir(container) + QStringLiteral("/start.sh");
+        return sshSession.runScript(credentials, sshSession.replaceVars(QStringLiteral("sudo %1").arg(path), baseVars));
+    }
+
     ErrorCode e = sshSession.uploadTextFileToContainer(container, credentials, sshSession.replaceVars(script, baseVars),
                                                                 "/opt/amnezia/start.sh");
     if (e)
@@ -426,6 +478,20 @@ ErrorCode InstallController::isServerPortBusy(const ServerCredentials &credentia
     QString transportProto = config.protocolConfig.transportProto();
     if (transportProto.isEmpty()) {
         transportProto = ProtocolUtils::transportProtoToString(ProtocolUtils::defaultTransportProto(protocol), protocol);
+    }
+
+    if (ContainerUtils::isNativeHostContainer(container)) {
+        QString nativeScript = QStringLiteral(
+            "sudo sh -c \"if command -v lsof >/dev/null 2>&1; then "
+            "lsof -i -P -n 2>/dev/null | grep -E ':%1 ' | grep -i tcp | grep LISTEN; "
+            "elif command -v ss >/dev/null 2>&1; then "
+            "ss -lntp 2>/dev/null | grep -E ':%1\\b'; fi\"");
+        ErrorCode errorCode = sshSession.runScript(
+                credentials, nativeScript.arg(port), cbReadStdOut, cbReadStdErr);
+        if (errorCode != ErrorCode::NoError) {
+            return errorCode;
+        }
+        return stdOut.isEmpty() ? ErrorCode::NoError : ErrorCode::ServerPortAlreadyAllocatedError;
     }
 
     // TODO reimplement with netstat
@@ -586,6 +652,14 @@ ErrorCode InstallController::installDockerWorker(const ServerCredentials &creden
 
 ErrorCode InstallController::prepareHostWorker(const ServerCredentials &credentials, DockerContainer container, SshSession &sshSession)
 {
+    if (ContainerUtils::isNativeHostContainer(container)) {
+        QString script = QStringLiteral("sudo mkdir -p $DOCKERFILE_FOLDER;"
+                                        "sudo chown root:root $DOCKERFILE_FOLDER;"
+                                        "sudo chmod 700 $DOCKERFILE_FOLDER");
+        return sshSession.runScript(credentials,
+                                    sshSession.replaceVars(script, amnezia::genBaseVars(credentials, container, QString(), QString())));
+    }
+
     // create folder on host
     return sshSession.runScript(credentials,
                                          sshSession.replaceVars(amnezia::scriptData(SharedScriptType::prepare_host),
@@ -1111,7 +1185,7 @@ ErrorCode InstallController::getAlreadyInstalledContainers(const ServerCredentia
         return ErrorCode::NoError;
     };
 
-    QString script = QString("sudo docker ps --format '{{.Names}} {{.Ports}}'");
+    QString script = QString("if command -v docker >/dev/null 2>&1; then sudo docker ps --format '{{.Names}} {{.Ports}}'; fi");
     ErrorCode errorCode = sshSession.runScript(credentials, script, cbReadStdOut, cbReadStdErr);
     if (errorCode != ErrorCode::NoError) {
         return errorCode;
@@ -1147,6 +1221,9 @@ ErrorCode InstallController::getAlreadyInstalledContainers(const ServerCredentia
             if (extractError != ErrorCode::NoError && extractError != ErrorCode::ServerContainerMissingError) {
                 return extractError;
             }
+            if (ContainerUtils::isNativeHostContainer(container) && extractError == ErrorCode::ServerContainerMissingError) {
+                continue;
+            }
 
             installedContainers.insert(container, config);
         }
@@ -1172,9 +1249,33 @@ ErrorCode InstallController::getAlreadyInstalledContainers(const ServerCredentia
             if (extractError != ErrorCode::NoError && extractError != ErrorCode::ServerContainerMissingError) {
                 return extractError;
             }
+            if (ContainerUtils::isNativeHostContainer(container) && extractError == ErrorCode::ServerContainerMissingError) {
+                continue;
+            }
 
             installedContainers.insert(container, config);
         }
+    }
+
+    for (DockerContainer container : { DockerContainer::Udp2RawWireGuard, DockerContainer::Udp2RawAwg }) {
+        ErrorCode envError = ErrorCode::NoError;
+        const QString envText = QString::fromUtf8(sshSession.getTextFileFromHost(credentials, nativeHostEnvPath(container), envError));
+        if (envError != ErrorCode::NoError || envText.isEmpty()) {
+            continue;
+        }
+
+        const QMap<QString, QString> env = parseEnvFile(envText);
+        if (!hasNativeUdp2RawMarker(env)) {
+            continue;
+        }
+
+        const int publicPort = env.value(QStringLiteral("UDP2RAW_PUBLIC_PORT"), protocols::udp2raw::defaultPublicPort).toInt();
+        ContainerConfig config = createInstaller(container)->createBaseConfig(container, publicPort, TransportProto::Tcp);
+        ErrorCode extractError = createInstaller(container)->extractConfigFromContainer(container, credentials, &sshSession, config);
+        if (extractError != ErrorCode::NoError) {
+            return extractError;
+        }
+        installedContainers.insert(container, config);
     }
 
     return ErrorCode::NoError;
