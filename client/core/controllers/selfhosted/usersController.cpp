@@ -22,6 +22,49 @@ using namespace amnezia;
 namespace
 {
     Logger logger("UsersController");
+
+    QString nativeContainerDir(DockerContainer container)
+    {
+        return QStringLiteral("/opt/amnezia/%1").arg(ContainerUtils::containerToString(container));
+    }
+
+    QString nativeInterfaceName(DockerContainer container)
+    {
+        return container == DockerContainer::Udp2RawAwg ? QStringLiteral("amnawg0") : QStringLiteral("amnwg0");
+    }
+
+    QString nativeConfigPath(DockerContainer container)
+    {
+        return nativeContainerDir(container) +
+               (container == DockerContainer::Udp2RawAwg ? QStringLiteral("/awg/amnawg0.conf")
+                                                         : QStringLiteral("/wireguard/amnwg0.conf"));
+    }
+
+    QString clientsTablePath(DockerContainer container)
+    {
+        if (container == DockerContainer::OpenVpn) {
+            return QStringLiteral("/opt/amnezia/%1/clientsTable")
+                    .arg(ContainerUtils::containerTypeToString(DockerContainer::OpenVpn));
+        }
+        return QStringLiteral("/opt/amnezia/%1/clientsTable")
+                .arg(ContainerUtils::containerTypeToString(container));
+    }
+
+    QByteArray readServerFile(SshSession *sshSession, DockerContainer container, const ServerCredentials &credentials,
+                              const QString &path, ErrorCode &error)
+    {
+        return ContainerUtils::isNativeHostContainer(container)
+                ? sshSession->getTextFileFromHost(credentials, path, error)
+                : sshSession->getTextFileFromContainer(container, credentials, path, error);
+    }
+
+    ErrorCode writeServerFile(SshSession *sshSession, DockerContainer container, const ServerCredentials &credentials,
+                              const QByteArray &data, const QString &path)
+    {
+        return ContainerUtils::isNativeHostContainer(container)
+                ? sshSession->uploadTextFileToHost(credentials, QString::fromUtf8(data), path)
+                : sshSession->uploadTextFileToContainer(container, credentials, QString::fromUtf8(data), path);
+    }
 }
 
 UsersController::UsersController(SecureServersRepository* serversRepository, QObject *parent)
@@ -89,7 +132,9 @@ ErrorCode UsersController::wgShow(const DockerContainer container, const ServerC
     QString showBin = (container == DockerContainer::Awg2 || container == DockerContainer::Udp2RawAwg)
                        ? QStringLiteral("awg")
                        : QStringLiteral("wg");
-    const QString command = QString("sudo docker exec -i $CONTAINER_NAME bash -c '%1 show all'").arg(showBin);
+    const QString command = ContainerUtils::isNativeHostContainer(container)
+            ? QString("sudo %1 show all").arg(showBin)
+            : QString("sudo docker exec -i $CONTAINER_NAME bash -c '%1 show all'").arg(showBin);
 
     QString script = sshSession->replaceVars(command, amnezia::genBaseVars(credentials, container, QString(), QString()));
     error = sshSession->runScript(credentials, script, cbReadStdOut);
@@ -192,12 +237,14 @@ ErrorCode UsersController::getWireGuardClients(const DockerContainer container, 
     QString configPath;
     if (container == DockerContainer::Awg) {
         configPath = QString::fromLatin1(protocols::awg::serverLegacyConfigPath);
+    } else if (ContainerUtils::isNativeHostContainer(container)) {
+        configPath = nativeConfigPath(container);
     } else if (container == DockerContainer::Awg2 || container == DockerContainer::Udp2RawAwg) {
         configPath = QString::fromLatin1(protocols::awg::serverConfigPath);
     } else {
         configPath = QString::fromLatin1(protocols::wireguard::serverConfigPath);
     }
-    const QString wireguardConfigString = sshSession->getTextFileFromContainer(container, credentials, configPath, error);
+    const QString wireguardConfigString = readServerFile(sshSession, container, credentials, configPath, error);
     if (error != ErrorCode::NoError) {
         logger.error() << "Failed to get the wg conf file from the server";
         return error;
@@ -298,14 +345,9 @@ ErrorCode UsersController::updateClients(int serverIndex, const DockerContainer 
     SshSession sshSession;
     ServerCredentials credentials = m_serversRepository->serverCredentials(serverIndex);
 
-    QString clientsTableFile = QString("/opt/amnezia/%1/clientsTable");
-    if (container == DockerContainer::OpenVpn) {
-        clientsTableFile = clientsTableFile.arg(ContainerUtils::containerTypeToString(DockerContainer::OpenVpn));
-    } else {
-        clientsTableFile = clientsTableFile.arg(ContainerUtils::containerTypeToString(container));
-    }
+    const QString clientsTableFile = clientsTablePath(container);
 
-    const QByteArray clientsTableString = sshSession.getTextFileFromContainer(container, credentials, clientsTableFile, error);
+    const QByteArray clientsTableString = readServerFile(&sshSession, container, credentials, clientsTableFile, error);
     if (error != ErrorCode::NoError) {
         logger.error() << "Failed to get the clientsTable file from the server";
         emit clientsUpdated(QJsonArray());
@@ -333,7 +375,7 @@ ErrorCode UsersController::updateClients(int serverIndex, const DockerContainer 
 
         const QByteArray newClientsTableString = QJsonDocument(m_clientsTable).toJson();
         if (clientsTableString != newClientsTableString) {
-            error = sshSession.uploadTextFileToContainer(container, credentials, newClientsTableString, clientsTableFile);
+            error = writeServerFile(&sshSession, container, credentials, newClientsTableString, clientsTableFile);
             if (error != ErrorCode::NoError) {
                 logger.error() << "Failed to upload the clientsTable file to the server";
             }
@@ -408,14 +450,9 @@ ErrorCode UsersController::appendClient(int serverIndex, const QString &clientId
 
     const QByteArray clientsTableString = QJsonDocument(m_clientsTable).toJson();
 
-    QString clientsTableFile = QString("/opt/amnezia/%1/clientsTable");
-    if (container == DockerContainer::OpenVpn) {
-        clientsTableFile = clientsTableFile.arg(ContainerUtils::containerTypeToString(DockerContainer::OpenVpn));
-    } else {
-        clientsTableFile = clientsTableFile.arg(ContainerUtils::containerTypeToString(container));
-    }
+    const QString clientsTableFile = clientsTablePath(container);
 
-    error = sshSession.uploadTextFileToContainer(container, credentials, clientsTableString, clientsTableFile);
+    error = writeServerFile(&sshSession, container, credentials, clientsTableString, clientsTableFile);
     if (error != ErrorCode::NoError) {
         logger.error() << "Failed to upload the clientsTable file to the server";
         return error;
@@ -448,14 +485,9 @@ ErrorCode UsersController::renameClient(int serverIndex, const int row, const QS
 
     const QByteArray clientsTableString = QJsonDocument(m_clientsTable).toJson();
 
-    QString clientsTableFile = QString("/opt/amnezia/%1/clientsTable");
-    if (container == DockerContainer::OpenVpn) {
-        clientsTableFile = clientsTableFile.arg(ContainerUtils::containerTypeToString(DockerContainer::OpenVpn));
-    } else {
-        clientsTableFile = clientsTableFile.arg(ContainerUtils::containerTypeToString(container));
-    }
+    const QString clientsTableFile = clientsTablePath(container);
 
-    ErrorCode error = sshSession.uploadTextFileToContainer(container, credentials, clientsTableString, clientsTableFile);
+    ErrorCode error = writeServerFile(&sshSession, container, credentials, clientsTableString, clientsTableFile);
     if (error != ErrorCode::NoError) {
         logger.error() << "Failed to upload the clientsTable file to the server";
         return error;
@@ -521,12 +553,14 @@ ErrorCode UsersController::revokeWireGuard(const int row, const DockerContainer 
     QString configPath;
     if (container == DockerContainer::Awg) {
         configPath = QString::fromLatin1(protocols::awg::serverLegacyConfigPath);
+    } else if (ContainerUtils::isNativeHostContainer(container)) {
+        configPath = nativeConfigPath(container);
     } else if (container == DockerContainer::Awg2 || container == DockerContainer::Udp2RawAwg) {
         configPath = QString::fromLatin1(protocols::awg::serverConfigPath);
     } else {
         configPath = QString::fromLatin1(protocols::wireguard::serverConfigPath);
     }
-    const QString wireguardConfigString = sshSession->getTextFileFromContainer(container, credentials, configPath, error);
+    const QString wireguardConfigString = readServerFile(sshSession, container, credentials, configPath, error);
     if (error != ErrorCode::NoError) {
         logger.error() << "Failed to get the wg conf file from the server";
         return error;
@@ -544,7 +578,7 @@ ErrorCode UsersController::revokeWireGuard(const int row, const DockerContainer 
     }
     QString newWireGuardConfig = configSections.join("[");
     newWireGuardConfig.insert(0, "[");
-    error = sshSession->uploadTextFileToContainer(container, credentials, newWireGuardConfig, configPath);
+    error = writeServerFile(sshSession, container, credentials, newWireGuardConfig.toUtf8(), configPath);
     if (error != ErrorCode::NoError) {
         logger.error() << "Failed to upload the wg conf file to the server";
         return error;
@@ -554,13 +588,8 @@ ErrorCode UsersController::revokeWireGuard(const int row, const DockerContainer 
 
     const QByteArray clientsTableString = QJsonDocument(clientsTable).toJson();
 
-    QString clientsTableFile = QString("/opt/amnezia/%1/clientsTable");
-    if (container == DockerContainer::OpenVpn) {
-        clientsTableFile = clientsTableFile.arg(ContainerUtils::containerTypeToString(DockerContainer::OpenVpn));
-    } else {
-        clientsTableFile = clientsTableFile.arg(ContainerUtils::containerTypeToString(container));
-    }
-    error = sshSession->uploadTextFileToContainer(container, credentials, clientsTableString, clientsTableFile);
+    const QString clientsTableFile = clientsTablePath(container);
+    error = writeServerFile(sshSession, container, credentials, clientsTableString, clientsTableFile);
     if (error != ErrorCode::NoError) {
         logger.error() << "Failed to upload the clientsTable file to the server";
         return error;
@@ -568,10 +597,12 @@ ErrorCode UsersController::revokeWireGuard(const int row, const DockerContainer 
 
     bool isAwg2 = (container == DockerContainer::Awg2 || container == DockerContainer::Udp2RawAwg);
     QString command = isAwg2 ? QStringLiteral("awg") : QStringLiteral("wg");
-    QString iface   = isAwg2 ? QStringLiteral("awg0") : QStringLiteral("wg0");
-    QString script  = QString(
-        "sudo docker exec -i $CONTAINER_NAME bash -c '%1 syncconf %2 <(%1-quick strip %3)'"
-    ).arg(command, iface, configPath);
+    QString iface = ContainerUtils::isNativeHostContainer(container)
+            ? nativeInterfaceName(container)
+            : (isAwg2 ? QStringLiteral("awg0") : QStringLiteral("wg0"));
+    QString script = ContainerUtils::isNativeHostContainer(container)
+            ? QString("sudo bash -c '%1 syncconf %2 <(%1-quick strip %3)'").arg(command, iface, configPath)
+            : QString("sudo docker exec -i $CONTAINER_NAME bash -c '%1 syncconf %2 <(%1-quick strip %3)'").arg(command, iface, configPath);
     error = sshSession->runScript(
         credentials,
         sshSession->replaceVars(script, amnezia::genBaseVars(credentials, container, QString(), QString()))

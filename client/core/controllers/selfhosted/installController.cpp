@@ -425,6 +425,14 @@ ErrorCode InstallController::configureContainerWorker(const ServerCredentials &c
 
 ErrorCode InstallController::startupContainerWorker(const ServerCredentials &credentials, DockerContainer container, const ContainerConfig &config, SshSession &sshSession)
 {
+    if (ContainerUtils::isNativeHostContainer(container)) {
+        amnezia::ScriptVars baseVars = amnezia::genBaseVars(credentials, container, QString(), QString());
+        amnezia::ScriptVars protocolVars = amnezia::genProtocolVarsForContainer(container, config);
+        baseVars.append(protocolVars);
+        const QString path = nativeHostContainerDir(container) + QStringLiteral("/start.sh");
+        return sshSession.runScript(credentials, sshSession.replaceVars(QStringLiteral("sudo %1").arg(path), baseVars));
+    }
+
     QString script = amnezia::scriptData(ProtocolScriptType::container_startup, container);
 
     if (script.isEmpty()) {
@@ -434,11 +442,6 @@ ErrorCode InstallController::startupContainerWorker(const ServerCredentials &cre
     amnezia::ScriptVars baseVars = amnezia::genBaseVars(credentials, container, QString(), QString());
     amnezia::ScriptVars protocolVars = amnezia::genProtocolVarsForContainer(container, config);
     baseVars.append(protocolVars);
-
-    if (ContainerUtils::isNativeHostContainer(container)) {
-        const QString path = nativeHostContainerDir(container) + QStringLiteral("/start.sh");
-        return sshSession.runScript(credentials, sshSession.replaceVars(QStringLiteral("sudo %1").arg(path), baseVars));
-    }
 
     ErrorCode e = sshSession.uploadTextFileToContainer(container, credentials, sshSession.replaceVars(script, baseVars),
                                                                 "/opt/amnezia/start.sh");

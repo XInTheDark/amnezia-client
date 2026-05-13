@@ -22,6 +22,7 @@ constexpr int kServiceReplyTimeoutMs = 5000;
 constexpr int kProcessReplicaTimeoutMs = 5000;
 constexpr int kUdp2RawStartupDelayMs = 250;
 constexpr int kUdp2RawProbeTimeoutMs = 5000;
+constexpr int kUdp2RawRouteWaitMs = 2000;
 
 QString configValue(const QJsonObject &config, const QLatin1String &key, const QString &fallback = {})
 {
@@ -37,7 +38,7 @@ Udp2RawProtocol::Udp2RawProtocol(const QJsonObject &configuration, QObject *pare
     m_trafficProbeTimer.setSingleShot(true);
     connect(&m_probeTimeoutTimer, &QTimer::timeout, this, [this]() {
         if (!m_dnsProbeFinished) {
-            failPostHandshakeProbe(QStringLiteral("DNS probe timed out"));
+            logPostHandshakeProbeFailure(QStringLiteral("DNS probe timed out"));
         }
     });
     connect(this, &VpnProtocol::connectionStateChanged, this, [this](Vpn::ConnectionState state) {
@@ -45,7 +46,8 @@ Udp2RawProtocol::Udp2RawProtocol(const QJsonObject &configuration, QObject *pare
             qInfo() << "UDP2Raw stage: WG/AWG handshake complete";
             startPostHandshakeProbes();
         }
-        if ((state == Vpn::ConnectionState::Disconnected || state == Vpn::ConnectionState::Error) && m_udp2rawProcess && !m_stoppingUdp2raw) {
+        if ((state == Vpn::ConnectionState::Disconnected || state == Vpn::ConnectionState::Error)
+            && m_udp2rawProcess && !m_stoppingUdp2raw && !m_stoppingBackend) {
             stopUdp2Raw();
         }
     });
@@ -79,28 +81,44 @@ ErrorCode Udp2RawProtocol::start()
     m_probeTxObserved = false;
     m_probeRxObserved = false;
     m_probeGrowthLogged = false;
+    m_udp2rawArguments.clear();
+    m_udp2rawRemoteIp.clear();
+    m_udp2rawRemotePort.clear();
     m_probeTimeoutTimer.stop();
     m_trafficProbeTimer.stop();
-    const ErrorCode udp2rawError = startUdp2Raw();
+
+    const ErrorCode udp2rawError = prepareUdp2Raw();
     if (udp2rawError != ErrorCode::NoError) {
         return udp2rawError;
     }
 
-    qInfo() << "UDP2Raw stage: starting WG/AWG backend";
+    qInfo() << "UDP2Raw stage: starting WG/AWG backend before local UDP2Raw";
     const ErrorCode wireguardError = WireguardProtocol::start();
     if (wireguardError != ErrorCode::NoError) {
-        stopUdp2Raw();
-    } else {
-        qInfo() << "UDP2Raw stage: WG/AWG backend start requested";
+        return wireguardError;
     }
-    return wireguardError;
+
+    qInfo() << "UDP2Raw stage: WG/AWG backend start requested";
+    waitForRemoteRouteReady();
+
+    const ErrorCode startUdp2RawError = startUdp2Raw();
+    if (startUdp2RawError != ErrorCode::NoError) {
+        m_stoppingBackend = true;
+        WireguardProtocol::stop();
+        m_stoppingBackend = false;
+        return startUdp2RawError;
+    }
+
+    return ErrorCode::NoError;
 }
 
 void Udp2RawProtocol::stop()
 {
     m_probeTimeoutTimer.stop();
     m_trafficProbeTimer.stop();
+    m_stoppingBackend = true;
     WireguardProtocol::stop();
+    m_stoppingBackend = false;
     stopUdp2Raw();
 }
 
@@ -113,7 +131,7 @@ int Udp2RawProtocol::allocateLocalPort() const
     return socket.localPort();
 }
 
-ErrorCode Udp2RawProtocol::startUdp2Raw()
+ErrorCode Udp2RawProtocol::prepareUdp2Raw()
 {
     const QString executablePath = Utils::udp2rawExecPath();
     if (executablePath.isEmpty() || !QFileInfo::exists(executablePath)) {
@@ -143,6 +161,61 @@ ErrorCode Udp2RawProtocol::startUdp2Raw()
 
     const int localPort = allocateLocalPort();
     if (localPort <= 0) {
+        return ErrorCode::InternalError;
+    }
+
+    vpnConfigData[configKey::udp2rawRemoteHost] = remoteIp;
+    vpnConfigData[configKey::udp2rawRemotePort] = remotePort;
+    vpnConfigData[configKey::hostName] = "127.0.0.1";
+    vpnConfigData[configKey::port] = localPort;
+    m_rawConfig.insert(protocolName + "_config_data", vpnConfigData);
+    m_rawConfig[configKey::hostName] = remoteIp;
+
+    m_udp2rawRemoteIp = remoteIp;
+    m_udp2rawRemotePort = remotePort;
+    m_udp2rawArguments = { "-c",
+                           "-l", QString("127.0.0.1:%1").arg(localPort),
+                           "-r", QString("%1:%2").arg(remoteIp, remotePort),
+                           "-k", password,
+                           "--raw-mode", rawMode };
+
+    qInfo().noquote() << QString("UDP2Raw stage: prepared local udp2raw_mp 127.0.0.1:%1 -> %2:%3")
+                             .arg(localPort)
+                             .arg(remoteIp, remotePort);
+
+    return ErrorCode::NoError;
+}
+
+void Udp2RawProtocol::waitForRemoteRouteReady() const
+{
+#ifdef Q_OS_MAC
+    if (m_udp2rawRemoteIp.isEmpty()) {
+        return;
+    }
+
+    for (int elapsed = 0; elapsed <= kUdp2RawRouteWaitMs; elapsed += 200) {
+        QProcess route;
+        route.start(QStringLiteral("/sbin/route"), { QStringLiteral("-n"), QStringLiteral("get"), m_udp2rawRemoteIp });
+        if (route.waitForFinished(500)) {
+            const QString output = QString::fromUtf8(route.readAllStandardOutput()) +
+                                   QString::fromUtf8(route.readAllStandardError());
+            const bool routedThroughUtun = output.contains(QStringLiteral("interface: utun"));
+            if (!routedThroughUtun) {
+                qInfo().noquote() << QString("UDP2Raw stage: real server route ready for %1").arg(m_udp2rawRemoteIp);
+                return;
+            }
+        }
+        QThread::msleep(200);
+    }
+
+    qWarning().noquote() << QString("UDP2Raw stage: real server route still appears to use a utun for %1; starting anyway")
+                                .arg(m_udp2rawRemoteIp);
+#endif
+}
+
+ErrorCode Udp2RawProtocol::startUdp2Raw()
+{
+    if (m_udp2rawArguments.isEmpty() || m_udp2rawRemoteIp.isEmpty() || m_udp2rawRemotePort.isEmpty()) {
         return ErrorCode::InternalError;
     }
 
@@ -178,14 +251,9 @@ ErrorCode Udp2RawProtocol::startUdp2Raw()
 
     m_udp2rawProcess->setProcessChannelMode(QProcess::MergedChannels);
     m_udp2rawProcess->setProgram(PermittedProcess::Udp2Raw);
-    m_udp2rawProcess->setArguments({ "-c",
-                                     "-l", QString("127.0.0.1:%1").arg(localPort),
-                                     "-r", QString("%1:%2").arg(remoteIp, remotePort),
-                                     "-k", password,
-                                     "--raw-mode", rawMode });
-    qInfo().noquote() << QString("UDP2Raw stage: starting local udp2raw_mp 127.0.0.1:%1 -> %2:%3")
-                             .arg(localPort)
-                             .arg(remoteIp, remotePort);
+    m_udp2rawProcess->setArguments(m_udp2rawArguments);
+    qInfo().noquote() << QString("UDP2Raw stage: starting local udp2raw_mp -> %1:%2")
+                             .arg(m_udp2rawRemoteIp, m_udp2rawRemotePort);
     m_udp2rawProcess->start();
 
     auto waitForStarted = m_udp2rawProcess->waitForStarted(kServiceReplyTimeoutMs);
@@ -197,13 +265,6 @@ ErrorCode Udp2RawProtocol::startUdp2Raw()
 
     QThread::msleep(kUdp2RawStartupDelayMs);
     qInfo() << "UDP2Raw stage: local UDP2Raw started";
-
-    vpnConfigData[configKey::udp2rawRemoteHost] = remoteIp;
-    vpnConfigData[configKey::udp2rawRemotePort] = remotePort;
-    vpnConfigData[configKey::hostName] = "127.0.0.1";
-    vpnConfigData[configKey::port] = localPort;
-    m_rawConfig.insert(protocolName + "_config_data", vpnConfigData);
-    m_rawConfig[configKey::hostName] = remoteIp;
 
     return ErrorCode::NoError;
 }
@@ -226,7 +287,7 @@ void Udp2RawProtocol::startPostHandshakeProbes()
             [this, ipProbe](int exitCode, QProcess::ExitStatus exitStatus) {
                 ipProbe->deleteLater();
                 if (exitStatus != QProcess::NormalExit || exitCode != 0) {
-                    failPostHandshakeProbe(QStringLiteral("IP probe failed"));
+                    logPostHandshakeProbeFailure(QStringLiteral("IP probe failed"));
                     return;
                 }
 
@@ -237,7 +298,7 @@ void Udp2RawProtocol::startPostHandshakeProbes()
                     m_dnsProbeFinished = true;
                     m_probeTimeoutTimer.stop();
                     if (hostInfo.error() != QHostInfo::NoError || hostInfo.addresses().isEmpty()) {
-                        failPostHandshakeProbe(QStringLiteral("DNS probe failed"));
+                        logPostHandshakeProbeFailure(QStringLiteral("DNS probe failed"));
                         return;
                     }
                     qInfo() << "UDP2Raw stage: DNS probe passed";
@@ -249,13 +310,10 @@ void Udp2RawProtocol::startPostHandshakeProbes()
 #endif
 }
 
-void Udp2RawProtocol::failPostHandshakeProbe(const QString &reason)
+void Udp2RawProtocol::logPostHandshakeProbeFailure(const QString &reason)
 {
-    qCritical().noquote() << "UDP2Raw post-handshake probe failed:" << reason;
+    qWarning().noquote() << "UDP2Raw post-handshake probe warning:" << reason;
     m_probeTimeoutTimer.stop();
-    m_trafficProbeTimer.stop();
-    WireguardProtocol::stop();
-    setLastError(ErrorCode::InternalError);
 }
 
 void Udp2RawProtocol::finishTrafficProbe()
@@ -269,34 +327,31 @@ void Udp2RawProtocol::finishTrafficProbe()
             << "rxObserved=" << m_probeRxObserved;
 
     if (m_probeTxObserved && !m_probeRxObserved) {
-        failPostHandshakeProbe(QStringLiteral("traffic probe saw tx growth but no rx growth"));
+        logPostHandshakeProbeFailure(QStringLiteral("traffic probe saw tx growth but no rx growth"));
     }
 }
 
 void Udp2RawProtocol::stopUdp2Raw()
 {
-    if (!m_udp2rawProcess) {
+    if (!m_udp2rawProcess || m_stoppingUdp2raw) {
         return;
     }
 
     m_stoppingUdp2raw = true;
-    m_udp2rawProcess->blockSignals(true);
-    if (!m_udp2rawProcess->isReplicaValid()) {
-        m_udp2rawProcess.reset();
-        m_stoppingUdp2raw = false;
-        return;
-    }
+    auto process = m_udp2rawProcess;
+    QObject::disconnect(process.data(), nullptr, this, nullptr);
+    process->blockSignals(true);
+    m_udp2rawProcess.reset();
 #ifndef Q_OS_WIN
-    m_udp2rawProcess->terminate();
-    auto waitForFinished = m_udp2rawProcess->waitForFinished(1000);
-    if (!waitForFinished.waitForFinished(kServiceReplyTimeoutMs) || !waitForFinished.returnValue()) {
-        m_udp2rawProcess->kill();
-        m_udp2rawProcess->waitForFinished(1000);
+    if (process->isReplicaValid()) {
+        process->terminate();
+        auto waitForFinished = process->waitForFinished(1000);
+        waitForFinished.waitForFinished(kServiceReplyTimeoutMs);
     }
 #else
-    m_udp2rawProcess->kill();
+    if (process->isReplicaValid()) {
+        process->kill();
+    }
 #endif
-    m_udp2rawProcess->close();
-    m_udp2rawProcess.reset();
     m_stoppingUdp2raw = false;
 }

@@ -26,6 +26,7 @@ public:
     ErrorCode uploadTextFileToContainer(DockerContainer container, const ServerCredentials &credentials, const QString &file,
                                         const QString &path,
                                         libssh::ScpOverwriteMode overwriteMode = libssh::ScpOverwriteMode::ScpOverwriteExisting);
+    ErrorCode uploadTextFileToHost(const ServerCredentials &credentials, const QString &file, const QString &path);
     QByteArray getTextFileFromContainer(DockerContainer container, const ServerCredentials &credentials, const QString &path,
                                         ErrorCode &errorCode);
     QByteArray getTextFileFromHost(const ServerCredentials &credentials, const QString &path, ErrorCode &errorCode);

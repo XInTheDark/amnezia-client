@@ -28,6 +28,7 @@ IpcServerProcess::IpcServerProcess(QObject *parent)
 IpcServerProcess::~IpcServerProcess()
 {
     qDebug() << "IpcServerProcess::~IpcServerProcess";
+    stopProcess();
 }
 
 void IpcServerProcess::start()
@@ -127,6 +128,19 @@ bool IpcServerProcess::waitForFinished()
 bool IpcServerProcess::waitForFinished(int msecs)
 {
     return m_process->waitForFinished(msecs);
+}
+
+void IpcServerProcess::stopProcess()
+{
+    if (!m_process || m_process->state() == QProcess::NotRunning) {
+        return;
+    }
+
+    m_process->terminate();
+    if (!m_process->waitForFinished(1000)) {
+        m_process->kill();
+        m_process->waitForFinished(1000);
+    }
 }
 
 #endif

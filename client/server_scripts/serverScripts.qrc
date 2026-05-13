@@ -49,14 +49,8 @@
         <file>wireguard/start.sh</file>
         <file>wireguard/template.conf</file>
         <file>udp2raw_wireguard/configure_container.sh</file>
-        <file>udp2raw_wireguard/Dockerfile</file>
-        <file>udp2raw_wireguard/run_container.sh</file>
-        <file>udp2raw_wireguard/start.sh</file>
         <file>udp2raw_wireguard/template.conf</file>
         <file>udp2raw_awg/configure_container.sh</file>
-        <file>udp2raw_awg/Dockerfile</file>
-        <file>udp2raw_awg/run_container.sh</file>
-        <file>udp2raw_awg/start.sh</file>
         <file>udp2raw_awg/template.conf</file>
         <file>xray/configure_container.sh</file>
         <file>xray/Dockerfile</file>

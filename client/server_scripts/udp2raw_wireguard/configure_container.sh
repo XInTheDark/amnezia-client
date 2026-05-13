@@ -120,52 +120,38 @@ set -euo pipefail
 BASE_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$BASE_DIR/udp2raw.env"
 CONFIG_FILE="$BASE_DIR/wireguard/$UDP2RAW_INTERFACE.conf"
-CHAIN_IN="AMN_U2R_WG_IN"
-CHAIN_FWD="AMN_U2R_WG_FWD"
-CHAIN_NAT="AMN_U2R_WG_NAT"
 
-delete_jump() {
+iptables_delete() {
   local table="$1"
-  local chain="$2"
-  local target="$3"
-  if [ -n "$table" ]; then
-    while iptables -t "$table" -C "$chain" -j "$target" >/dev/null 2>&1; do
-      iptables -t "$table" -D "$chain" -j "$target" || true
+  shift
+  if [ "$table" = "filter" ]; then
+    while iptables -C "$@" >/dev/null 2>&1; do
+      iptables -D "$@" || true
     done
   else
-    while iptables -C "$chain" -j "$target" >/dev/null 2>&1; do
-      iptables -D "$chain" -j "$target" || true
+    while iptables -t "$table" -C "$@" >/dev/null 2>&1; do
+      iptables -t "$table" -D "$@" || true
     done
   fi
 }
 
 cleanup_rules() {
-  delete_jump "" INPUT "$CHAIN_IN"
-  delete_jump "" FORWARD "$CHAIN_FWD"
-  delete_jump nat POSTROUTING "$CHAIN_NAT"
-  iptables -F "$CHAIN_IN" >/dev/null 2>&1 || true
-  iptables -X "$CHAIN_IN" >/dev/null 2>&1 || true
-  iptables -F "$CHAIN_FWD" >/dev/null 2>&1 || true
-  iptables -X "$CHAIN_FWD" >/dev/null 2>&1 || true
-  iptables -t nat -F "$CHAIN_NAT" >/dev/null 2>&1 || true
-  iptables -t nat -X "$CHAIN_NAT" >/dev/null 2>&1 || true
+  iptables_delete filter INPUT -i lo -p udp --dport "$UDP2RAW_INTERNAL_PORT" -j ACCEPT
+  iptables_delete filter INPUT -p tcp --dport "$UDP2RAW_PUBLIC_PORT" -j ACCEPT
+  iptables_delete filter INPUT -p udp --dport "$UDP2RAW_INTERNAL_PORT" -j DROP
+  iptables_delete filter FORWARD -i "$UDP2RAW_INTERFACE" -j ACCEPT
+  iptables_delete filter FORWARD -o "$UDP2RAW_INTERFACE" -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+  iptables_delete nat POSTROUTING -s "$WIREGUARD_SUBNET_IP/$WIREGUARD_SUBNET_CIDR" -j MASQUERADE
 }
 
 setup_rules() {
   cleanup_rules
-  iptables -N "$CHAIN_IN"
-  iptables -N "$CHAIN_FWD"
-  iptables -t nat -N "$CHAIN_NAT"
-  iptables -A "$CHAIN_IN" -i lo -p udp --dport "$UDP2RAW_INTERNAL_PORT" -j ACCEPT
-  iptables -A "$CHAIN_IN" -p tcp --dport "$UDP2RAW_PUBLIC_PORT" -j ACCEPT
-  iptables -A "$CHAIN_IN" -p udp --dport "$UDP2RAW_INTERNAL_PORT" -j DROP
-  iptables -A "$CHAIN_IN" -i "$UDP2RAW_INTERFACE" -j ACCEPT
-  iptables -A "$CHAIN_FWD" -i "$UDP2RAW_INTERFACE" -j ACCEPT
-  iptables -A "$CHAIN_FWD" -o "$UDP2RAW_INTERFACE" -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
-  iptables -t nat -A "$CHAIN_NAT" -s "$WIREGUARD_SUBNET_IP/$WIREGUARD_SUBNET_CIDR" ! -o "$UDP2RAW_INTERFACE" -j MASQUERADE
-  iptables -I INPUT 1 -j "$CHAIN_IN"
-  iptables -I FORWARD 1 -j "$CHAIN_FWD"
-  iptables -t nat -I POSTROUTING 1 -j "$CHAIN_NAT"
+  iptables -I INPUT 1 -p udp --dport "$UDP2RAW_INTERNAL_PORT" -j DROP
+  iptables -I INPUT 1 -p tcp --dport "$UDP2RAW_PUBLIC_PORT" -j ACCEPT
+  iptables -I INPUT 1 -i lo -p udp --dport "$UDP2RAW_INTERNAL_PORT" -j ACCEPT
+  iptables -I FORWARD 1 -o "$UDP2RAW_INTERFACE" -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+  iptables -I FORWARD 1 -i "$UDP2RAW_INTERFACE" -j ACCEPT
+  iptables -t nat -I POSTROUTING 1 -s "$WIREGUARD_SUBNET_IP/$WIREGUARD_SUBNET_CIDR" -j MASQUERADE
 }
 
 cleanup_interface() {
@@ -191,9 +177,12 @@ trap cleanup_all EXIT INT TERM
 
 sysctl -w net.ipv4.ip_forward=1 >/dev/null
 sysctl -w net.ipv4.conf.all.src_valid_mark=1 >/dev/null
+sysctl -w net.ipv4.conf.all.rp_filter=0 >/dev/null || true
+sysctl -w net.ipv4.conf.default.rp_filter=0 >/dev/null || true
 cleanup_all
 setup_rules
 wg-quick up "$CONFIG_FILE"
+sysctl -w "net.ipv4.conf.$UDP2RAW_INTERFACE.rp_filter=0" >/dev/null || true
 
 udp2raw -s \
   -l "0.0.0.0:$UDP2RAW_PUBLIC_PORT" \
@@ -245,10 +234,17 @@ set -euo pipefail
 BASE_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$BASE_DIR/udp2raw.env"
 SERVICE="$(basename "$BASE_DIR").service"
-CHAIN_IN="AMN_U2R_WG_IN"
-CHAIN_FWD="AMN_U2R_WG_FWD"
-CHAIN_NAT="AMN_U2R_WG_NAT"
 CONFIG_FILE="$BASE_DIR/wireguard/$UDP2RAW_INTERFACE.conf"
+
+iptables_delete() {
+  local table="$1"
+  shift
+  if [ "$table" = "filter" ]; then
+    while iptables -C "$@" >/dev/null 2>&1; do iptables -D "$@" || true; done
+  else
+    while iptables -t "$table" -C "$@" >/dev/null 2>&1; do iptables -t "$table" -D "$@" || true; done
+  fi
+}
 
 if [ "${1:-}" != "--no-systemctl" ] && command -v systemctl >/dev/null 2>&1; then
   systemctl stop "$SERVICE" >/dev/null 2>&1 || true
@@ -262,15 +258,12 @@ pkill -f "udp2raw .*${UDP2RAW_PUBLIC_PORT}.*${UDP2RAW_INTERNAL_PORT}" >/dev/null
 wg-quick down "$CONFIG_FILE" >/dev/null 2>&1 || true
 ip link delete "$UDP2RAW_INTERFACE" >/dev/null 2>&1 || true
 
-for spec in " INPUT $CHAIN_IN" " FORWARD $CHAIN_FWD"; do
-  set -- $spec
-  while iptables -C "$1" -j "$2" >/dev/null 2>&1; do iptables -D "$1" -j "$2" || true; done
-  iptables -F "$2" >/dev/null 2>&1 || true
-  iptables -X "$2" >/dev/null 2>&1 || true
-done
-while iptables -t nat -C POSTROUTING -j "$CHAIN_NAT" >/dev/null 2>&1; do iptables -t nat -D POSTROUTING -j "$CHAIN_NAT" || true; done
-iptables -t nat -F "$CHAIN_NAT" >/dev/null 2>&1 || true
-iptables -t nat -X "$CHAIN_NAT" >/dev/null 2>&1 || true
+iptables_delete filter INPUT -i lo -p udp --dport "$UDP2RAW_INTERNAL_PORT" -j ACCEPT
+iptables_delete filter INPUT -p tcp --dport "$UDP2RAW_PUBLIC_PORT" -j ACCEPT
+iptables_delete filter INPUT -p udp --dport "$UDP2RAW_INTERNAL_PORT" -j DROP
+iptables_delete filter FORWARD -i "$UDP2RAW_INTERFACE" -j ACCEPT
+iptables_delete filter FORWARD -o "$UDP2RAW_INTERFACE" -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+iptables_delete nat POSTROUTING -s "$WIREGUARD_SUBNET_IP/$WIREGUARD_SUBNET_CIDR" -j MASQUERADE
 EOF_STOP
 
 cat > "$BASE_DIR/remove.sh" <<'EOF_REMOVE'
@@ -307,12 +300,14 @@ ip route show table all
 echo "== wg =="
 wg show all
 echo "== sysctl =="
-sysctl net.ipv4.ip_forward net.ipv4.conf.all.src_valid_mark
+sysctl net.ipv4.ip_forward net.ipv4.conf.all.src_valid_mark net.ipv4.conf.all.rp_filter net.ipv4.conf.default.rp_filter "net.ipv4.conf.$UDP2RAW_INTERFACE.rp_filter"
 echo "== iptables =="
 iptables -S
 iptables -t nat -S
+iptables -t mangle -S
 iptables -L -v -n
 iptables -t nat -L -v -n
+iptables -t mangle -L -v -n
 EOF_DIAG
 
 chown -R root:root "$BASE_DIR"

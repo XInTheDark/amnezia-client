@@ -156,7 +156,13 @@ private slots:
             QVERIFY(script.contains(QStringLiteral("-p tcp --dport \"$UDP2RAW_PUBLIC_PORT\" -j ACCEPT")));
             QVERIFY(script.contains(QStringLiteral("-p udp --dport \"$UDP2RAW_INTERNAL_PORT\" -j DROP")));
             QVERIFY(script.contains(QStringLiteral("net.ipv4.ip_forward=1")));
+            QVERIFY(script.contains(QStringLiteral("net.ipv4.conf.all.rp_filter=0")));
+            QVERIFY(script.contains(QStringLiteral("net.ipv4.conf.default.rp_filter=0")));
+            QVERIFY(script.contains(QStringLiteral("net.ipv4.conf.$UDP2RAW_INTERFACE.rp_filter=0")));
             QVERIFY(script.contains(QStringLiteral("MASQUERADE")));
+            QVERIFY(!script.contains(QStringLiteral("! -o \"$UDP2RAW_INTERFACE\" -j MASQUERADE")));
+            QVERIFY(!script.contains(QStringLiteral("AMN_U2R_")));
+            QVERIFY(!script.contains(QStringLiteral("iptables -N")));
             QVERIFY(!script.contains(QStringLiteral("docker run")));
             QVERIFY(!script.contains(QStringLiteral("docker exec")));
             QVERIFY(!script.contains(QStringLiteral("--cipher-mode none")));
@@ -169,6 +175,7 @@ private slots:
         QVERIFY(awgConfigure.contains(QStringLiteral("IFACE=\"amnawg0\"")));
         QVERIFY(awgConfigure.contains(QStringLiteral("Address = $SERVER_INTERFACE_IP/$SUBNET_CIDR")));
         QVERIFY(removeScript.contains(QStringLiteral("sudo test -x /opt/amnezia/$CONTAINER_NAME/remove.sh")));
+        QVERIFY(removeScript.contains(QStringLiteral("exit 0")));
     }
 };
 

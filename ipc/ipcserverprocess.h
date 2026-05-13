@@ -34,6 +34,7 @@ public:
     bool waitForStarted(int msecs) override;
     bool waitForFinished() override;
     bool waitForFinished(int msecs) override;
+    void stopProcess();
 
 signals:
 

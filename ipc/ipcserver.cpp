@@ -35,12 +35,14 @@ int IpcServer::createPrivilegedProcess()
 #endif
 
     const int localPid = ++m_localpid;
+    const QString serverName = amnezia::getIpcProcessUrl(localPid);
 
     ProcessDescriptor pd(this);
 
     pd.localServer->setSocketOptions(QLocalServer::WorldAccessOption);
+    QLocalServer::removeServer(serverName);
 
-    if (!pd.localServer->listen(amnezia::getIpcProcessUrl(localPid))) {
+    if (!pd.localServer->listen(serverName)) {
         qDebug() << QString("Unable to start the server: %1.").arg(pd.localServer->errorString());
         return -1;
     }
@@ -50,11 +52,45 @@ int IpcServer::createPrivilegedProcess()
     QRemoteObjectHost *serverNode = pd.serverNode.data();
     IpcServerProcess *ipcProcess = pd.ipcProcess.data();
 
-    QObject::connect(localServer, &QLocalServer::newConnection, this, [localServer, serverNode, ipcProcess]() {
+    auto activeConnections = pd.activeConnections;
+    auto remotingEnabled = pd.remotingEnabled;
+    auto processFinished = pd.processFinished;
+
+    QObject::connect(localServer, &QLocalServer::newConnection, this,
+                     [this, localPid, localServer, serverNode, ipcProcess, activeConnections, remotingEnabled, processFinished]() {
         qDebug() << "IpcServer new connection";
-        if (serverNode && localServer && ipcProcess) {
-            serverNode->addHostSideConnection(localServer->nextPendingConnection());
+        if (!serverNode || !localServer || !ipcProcess) {
+            return;
+        }
+
+        while (localServer->hasPendingConnections()) {
+            QLocalSocket *socket = localServer->nextPendingConnection();
+            if (!socket) {
+                continue;
+            }
+
+            ++(*activeConnections);
+            QObject::connect(socket, &QLocalSocket::disconnected, this,
+                             [this, localPid, ipcProcess, activeConnections, processFinished]() {
+                *activeConnections = qMax(0, *activeConnections - 1);
+                if (*activeConnections != 0) {
+                    return;
+                }
+                if (!*processFinished && ipcProcess) {
+                    ipcProcess->stopProcess();
+                }
+                if (*processFinished) {
+                    qDebug() << "Removing disconnected privileged process descriptor" << localPid;
+                    m_processes.remove(localPid);
+                }
+            });
+
+            serverNode->addHostSideConnection(socket);
+        }
+
+        if (!*remotingEnabled) {
             serverNode->enableRemoting(ipcProcess);
+            *remotingEnabled = true;
         }
     });
 
@@ -64,9 +100,13 @@ int IpcServer::createPrivilegedProcess()
 
     QObject::connect(serverNode, &QRemoteObjectHost::destroyed, this,
                      []() { qDebug() << "QRemoteObjectHost::destroyed"; });
-    QObject::connect(ipcProcess, &IpcServerProcess::finished, this, [this, localPid](int, QProcess::ExitStatus) {
-        qDebug() << "Removing finished privileged process descriptor" << localPid;
-        m_processes.remove(localPid);
+    QObject::connect(ipcProcess, &IpcServerProcess::finished, this,
+                     [this, localPid, activeConnections, processFinished](int, QProcess::ExitStatus) {
+        *processFinished = true;
+        if (*activeConnections == 0) {
+            qDebug() << "Removing finished privileged process descriptor" << localPid;
+            m_processes.remove(localPid);
+        }
     });
 
     m_processes.insert(localPid, pd);

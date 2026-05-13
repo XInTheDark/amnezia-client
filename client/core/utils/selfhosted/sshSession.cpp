@@ -186,6 +186,23 @@ ErrorCode SshSession::uploadTextFileToContainer(DockerContainer container, const
     return e;
 }
 
+ErrorCode SshSession::uploadTextFileToHost(const ServerCredentials &credentials, const QString &file, const QString &path)
+{
+    const QString tmpFileName = QString("/tmp/%1.tmp").arg(Utils::getRandomString(16));
+    ErrorCode e = uploadFileToHost(credentials, file.toUtf8(), tmpFileName);
+    if (e) {
+        return e;
+    }
+
+    const QString script = QStringLiteral("sudo mkdir -p \"$(dirname '%1')\" && sudo cp %2 '%1' && sudo shred -u %2")
+                                   .arg(path, tmpFileName);
+    e = runScript(credentials, script);
+    if (e) {
+        runScript(credentials, QStringLiteral("sudo rm -f %1").arg(tmpFileName));
+    }
+    return e;
+}
+
 QByteArray SshSession::getTextFileFromContainer(DockerContainer container, const ServerCredentials &credentials, const QString &path,
                                                 ErrorCode &errorCode)
 {
