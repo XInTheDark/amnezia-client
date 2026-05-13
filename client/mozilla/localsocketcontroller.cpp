@@ -39,6 +39,23 @@ constexpr int DISCONNECT_ACK_TIMEOUT_MSEC = 5000;
 
 namespace {
 Logger logger("LocalSocketController");
+
+void appendAllowedIpRange(QJsonArray& ranges, const QString& ipRange,
+                          bool udp2rawIpv4Only) {
+  const QStringList parts = ipRange.split('/');
+  const QString addressText = parts[0];
+  const QHostAddress address(addressText);
+  const bool isIpv6 = address.protocol() == QAbstractSocket::IPv6Protocol;
+  if (udp2rawIpv4Only && isIpv6) {
+    return;
+  }
+
+  QJsonObject range;
+  range.insert("address", addressText);
+  range.insert("range", parts.size() > 1 ? atoi(parts[1].toLocal8Bit()) : 32);
+  range.insert("isIpv6", isIpv6);
+  ranges.append(range);
+}
 }
 
 LocalSocketController::LocalSocketController() {
@@ -138,6 +155,7 @@ void LocalSocketController::activate(const QJsonObject &rawConfig) {
   const QString transportHost = wgConfig.value(amnezia::configKey::udp2rawRemoteHost).toString().isEmpty()
       ? endpointHost
       : wgConfig.value(amnezia::configKey::udp2rawRemoteHost).toString();
+  const bool isUdp2Raw = !wgConfig.value(amnezia::configKey::udp2rawRemoteHost).toString().isEmpty();
 
   QJsonObject json;
   json.insert("type", "activate");
@@ -153,7 +171,9 @@ void LocalSocketController::activate(const QJsonObject &rawConfig) {
   // https://man7.org/linux/man-pages/man5/gai.conf.5.html
 
   // simply "dead::1" is globally-routable, don't use it
-  json.insert("deviceIpv6Address", "fd58:baa6:dead::1");
+  if (!isUdp2Raw) {
+    json.insert("deviceIpv6Address", "fd58:baa6:dead::1");
+  }
 
   json.insert("serverPublicKey", wgConfig.value(amnezia::configKey::serverPubKey));
   json.insert("serverPskKey", wgConfig.value(amnezia::configKey::pskKey));
@@ -181,20 +201,7 @@ void LocalSocketController::activate(const QJsonObject &rawConfig) {
   if (plainAllowedIP != defaultAllowedIP && !plainAllowedIP.isEmpty()) {
     // Use AllowedIP list from WG config because of higher priority
     for (auto v : plainAllowedIP) {
-      QString ipRange = v.toString();
-      if (ipRange.split('/').size() > 1){
-          QJsonObject range;
-          range.insert("address", ipRange.split('/')[0]);
-          range.insert("range", atoi(ipRange.split('/')[1].toLocal8Bit()));
-          range.insert("isIpv6", false);
-          jsAllowedIPAddesses.append(range);
-      } else {
-          QJsonObject range;
-          range.insert("address",ipRange);
-          range.insert("range", 32);
-          range.insert("isIpv6", false);
-          jsAllowedIPAddesses.append(range);
-      }
+      appendAllowedIpRange(jsAllowedIPAddesses, v.toString(), isUdp2Raw);
     }
   } else {
 
@@ -206,29 +213,18 @@ void LocalSocketController::activate(const QJsonObject &rawConfig) {
           range_ipv4.insert("isIpv6", false);
           jsAllowedIPAddesses.append(range_ipv4);
 
-          QJsonObject range_ipv6;
-          range_ipv6.insert("address", "::");
-          range_ipv6.insert("range", 0);
-          range_ipv6.insert("isIpv6", true);
-          jsAllowedIPAddesses.append(range_ipv6);
+          if (!isUdp2Raw) {
+            QJsonObject range_ipv6;
+            range_ipv6.insert("address", "::");
+            range_ipv6.insert("range", 0);
+            range_ipv6.insert("isIpv6", true);
+            jsAllowedIPAddesses.append(range_ipv6);
+          }
       }
 
       if (splitTunnelType == 1) {
           for (auto v : splitTunnelSites) {
-              QString ipRange = v.toString();
-              if (ipRange.split('/').size() > 1){
-                  QJsonObject range;
-                  range.insert("address", ipRange.split('/')[0]);
-                  range.insert("range", atoi(ipRange.split('/')[1].toLocal8Bit()));
-                  range.insert("isIpv6", false);
-                  jsAllowedIPAddesses.append(range);
-              } else {
-                  QJsonObject range;
-                  range.insert("address",ipRange);
-                  range.insert("range", 32);
-                  range.insert("isIpv6", false);
-                  jsAllowedIPAddesses.append(range);
-              }
+              appendAllowedIpRange(jsAllowedIPAddesses, v.toString(), isUdp2Raw);
           }
       }
   }
@@ -463,6 +459,12 @@ void LocalSocketController::parseCommand(const QByteArray& command) {
   }
 
   if (type == "status") {
+    QJsonValue connected = obj.value("connected");
+    if (connected.isBool() && !connected.toBool()) {
+      logger.warning() << "Daemon status reports disconnected";
+      disconnectInternal();
+      return;
+    }
 
     QJsonValue serverIpv4Gateway = obj.value("serverIpv4Gateway");
     if (!serverIpv4Gateway.isString()) {

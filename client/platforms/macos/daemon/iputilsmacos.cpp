@@ -35,7 +35,8 @@ IPUtilsMacos::~IPUtilsMacos() {
 }
 
 bool IPUtilsMacos::addInterfaceIPs(const InterfaceConfig& config) {
-  return addIP4AddressToDevice(config) && addIP6AddressToDevice(config);
+  return addIP4AddressToDevice(config) &&
+         (config.m_deviceIpv6Address.isEmpty() || addIP6AddressToDevice(config));
 }
 
 bool IPUtilsMacos::setMTUAndUp(const InterfaceConfig& config) {
@@ -130,6 +131,10 @@ bool IPUtilsMacos::addIP4AddressToDevice(const InterfaceConfig& config) {
 }
 
 bool IPUtilsMacos::addIP6AddressToDevice(const InterfaceConfig& config) {
+  if (config.m_deviceIpv6Address.isEmpty()) {
+    return true;
+  }
+
   Q_UNUSED(config);
   QString ifname = MacOSDaemon::instance()->m_wgutils->interfaceName();
   struct in6_aliasreq ifr6;

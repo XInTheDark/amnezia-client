@@ -40,6 +40,7 @@
 #include "core/utils/utilities.h"
 #include <QDesktopServices>
 #include <QDir>
+#include <QHostAddress>
 #include <QProcess>
 #include <QStandardPaths>
 #include <QUrl>
@@ -84,6 +85,52 @@ namespace
     bool hasNativeUdp2RawMarker(const QMap<QString, QString> &env)
     {
         return env.value(QStringLiteral("UDP2RAW_IMPL_VERSION")).toInt() == protocols::udp2raw::nativeHostImplementationVersion;
+    }
+
+    QString firstHostAddress(const QString &subnetAddress)
+    {
+        const QHostAddress subnet(subnetAddress.section('/', 0, 0));
+        const quint32 subnetIpv4 = subnet.toIPv4Address();
+        if (subnetIpv4 == 0) {
+            return {};
+        }
+        return QHostAddress(subnetIpv4 + 1).toString();
+    }
+
+    bool hasReservedUdp2RawClientAddress(DockerContainer container, const ContainerConfig &containerConfig)
+    {
+        if (!ContainerUtils::isUdp2RawContainer(container) || !containerConfig.protocolConfig.hasClientConfig()) {
+            return false;
+        }
+
+        QString subnetAddress = protocols::wireguard::defaultSubnetAddress;
+        QString clientIp;
+        int implementationVersion = 0;
+
+        if (const auto *wgConfig = containerConfig.getWireGuardProtocolConfig()) {
+            subnetAddress = wgConfig->serverConfig.subnetAddress.isEmpty()
+                    ? protocols::wireguard::defaultSubnetAddress
+                    : wgConfig->serverConfig.subnetAddress;
+            implementationVersion = wgConfig->serverConfig.udp2rawImplementationVersion;
+            if (wgConfig->clientConfig.has_value()) {
+                clientIp = wgConfig->clientConfig->clientIp;
+            }
+        } else if (const auto *awgConfig = containerConfig.getAwgProtocolConfig()) {
+            subnetAddress = awgConfig->serverConfig.subnetAddress.isEmpty()
+                    ? protocols::wireguard::defaultSubnetAddress
+                    : awgConfig->serverConfig.subnetAddress;
+            implementationVersion = awgConfig->serverConfig.udp2rawImplementationVersion;
+            if (awgConfig->clientConfig.has_value()) {
+                clientIp = awgConfig->clientConfig->clientIp;
+            }
+        }
+
+        if (implementationVersion != protocols::udp2raw::nativeHostImplementationVersion) {
+            return true;
+        }
+
+        clientIp = clientIp.section('/', 0, 0);
+        return !clientIp.isEmpty() && clientIp == firstHostAddress(subnetAddress);
     }
 }
 
@@ -230,6 +277,12 @@ ErrorCode InstallController::validateAndPrepareConfig(int serverIndex)
     auto isProtocolConfigExists = [](const ContainerConfig &cfg) {
         return cfg.protocolConfig.hasClientConfig();
     };
+
+    if (hasReservedUdp2RawClientAddress(container, containerConfig)) {
+        qWarning() << "Regenerating stale UDP2Raw client profile";
+        clearCachedProfile(serverIndex, container);
+        containerConfig.protocolConfig.clearClientConfig();
+    }
 
     if (!isProtocolConfigExists(containerConfig)) {
         QString clientName = QString("Admin [%1]").arg(QSysInfo::prettyProductName());

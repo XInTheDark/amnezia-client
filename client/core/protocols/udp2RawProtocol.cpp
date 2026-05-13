@@ -92,22 +92,21 @@ ErrorCode Udp2RawProtocol::start()
         return udp2rawError;
     }
 
-    qInfo() << "UDP2Raw stage: starting WG/AWG backend before local UDP2Raw";
-    const ErrorCode wireguardError = WireguardProtocol::start();
-    if (wireguardError != ErrorCode::NoError) {
-        return wireguardError;
-    }
-
-    qInfo() << "UDP2Raw stage: WG/AWG backend start requested";
     waitForRemoteRouteReady();
 
     const ErrorCode startUdp2RawError = startUdp2Raw();
     if (startUdp2RawError != ErrorCode::NoError) {
-        m_stoppingBackend = true;
-        WireguardProtocol::stop();
-        m_stoppingBackend = false;
         return startUdp2RawError;
     }
+
+    qInfo() << "UDP2Raw stage: starting WG/AWG backend";
+    const ErrorCode wireguardError = WireguardProtocol::start();
+    if (wireguardError != ErrorCode::NoError) {
+        stopUdp2Raw();
+        return wireguardError;
+    }
+
+    qInfo() << "UDP2Raw stage: WG/AWG backend start requested";
 
     return ErrorCode::NoError;
 }

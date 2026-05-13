@@ -3,14 +3,19 @@
 #include <QTest>
 
 #include "core/models/containerConfig.h"
+#include "core/models/serverConfig.h"
 #include "core/models/protocolConfig.h"
 #include "core/models/protocols/awgProtocolConfig.h"
 #include "core/models/protocols/wireGuardProtocolConfig.h"
+#include "core/controllers/connectionController.h"
+#include "core/repositories/secureAppSettingsRepository.h"
+#include "core/repositories/secureServersRepository.h"
 #include "core/protocols/protocolUtils.h"
 #include "core/utils/constants/configKeys.h"
 #include "core/utils/constants/protocolConstants.h"
 #include "core/utils/containerEnum.h"
 #include "core/utils/containers/containerUtils.h"
+#include "secureQSettings.h"
 
 using namespace amnezia;
 
@@ -138,6 +143,74 @@ private slots:
         QCOMPARE(restoredProtocol->clientConfig->port, 3333);
         QCOMPARE(restoredProtocol->clientConfig->udp2rawRemoteHost, QStringLiteral("64.235.43.101"));
         QCOMPARE(restoredProtocol->clientConfig->udp2rawRemotePort, QStringLiteral("8443"));
+    }
+
+    void testUdp2RawConnectionDoesNotUseAmneziaDns()
+    {
+        SecureQSettings settings(QStringLiteral("AmneziaVPNTests"),
+                                 QStringLiteral("Udp2RawConnectionDoesNotUseAmneziaDns"),
+                                 this,
+                                 false);
+        settings.clearSettings();
+        SecureServersRepository serversRepository(&settings);
+        SecureAppSettingsRepository appSettingsRepository(&settings);
+        appSettingsRepository.setPrimaryDns(QStringLiteral("9.9.9.9"));
+        appSettingsRepository.setSecondaryDns(QStringLiteral("149.112.112.112"));
+
+        VpnConnection vpnConnection(&serversRepository, &appSettingsRepository);
+        ConnectionController controller(&serversRepository, &appSettingsRepository, &vpnConnection);
+
+        WireGuardProtocolConfig protocolConfig;
+        protocolConfig.serverConfig.udp2rawPublicPort = QStringLiteral("8443");
+        protocolConfig.serverConfig.udp2rawInternalPort = QStringLiteral("51820");
+        protocolConfig.serverConfig.udp2rawPassword = QStringLiteral("secret");
+        protocolConfig.serverConfig.udp2rawRawMode = QString::fromLatin1(protocols::udp2raw::defaultRawMode);
+        protocolConfig.serverConfig.udp2rawImplementationVersion = protocols::udp2raw::nativeHostImplementationVersion;
+
+        WireGuardClientConfig clientConfig;
+        clientConfig.nativeConfig = QStringLiteral("DNS = $PRIMARY_DNS, $SECONDARY_DNS");
+        clientConfig.hostName = QStringLiteral("142.91.102.48");
+        clientConfig.port = 8443;
+        clientConfig.clientIp = QStringLiteral("10.8.1.2");
+        clientConfig.clientPrivateKey = QStringLiteral("client-private");
+        clientConfig.clientPublicKey = QStringLiteral("client-public");
+        clientConfig.serverPublicKey = QStringLiteral("server-public");
+        clientConfig.presharedKey = QStringLiteral("psk");
+        clientConfig.clientId = QStringLiteral("client-public");
+        clientConfig.allowedIps = QStringList { QStringLiteral("0.0.0.0/0"), QStringLiteral("::/0") };
+        clientConfig.udp2rawPublicPort = protocolConfig.serverConfig.udp2rawPublicPort;
+        clientConfig.udp2rawInternalPort = protocolConfig.serverConfig.udp2rawInternalPort;
+        clientConfig.udp2rawPassword = protocolConfig.serverConfig.udp2rawPassword;
+        clientConfig.udp2rawRawMode = protocolConfig.serverConfig.udp2rawRawMode;
+        clientConfig.udp2rawRemoteHost = QStringLiteral("142.91.102.48");
+        clientConfig.udp2rawRemotePort = protocolConfig.serverConfig.udp2rawPublicPort;
+        protocolConfig.setClientConfig(clientConfig);
+
+        ContainerConfig containerConfig;
+        containerConfig.container = DockerContainer::Udp2RawWireGuard;
+        containerConfig.protocolConfig = protocolConfig;
+
+        SelfHostedServerConfig selfHostedServer;
+        selfHostedServer.hostName = QStringLiteral("142.91.102.48");
+        selfHostedServer.description = QStringLiteral("UDP2Raw test");
+        selfHostedServer.defaultContainer = DockerContainer::Udp2RawWireGuard;
+        selfHostedServer.containers.insert(DockerContainer::Udp2RawWireGuard, containerConfig);
+
+        const QJsonObject vpnConfig = controller.createConnectionConfiguration(
+            { QString::fromLatin1(protocols::dns::amneziaDnsIp), QStringLiteral("1.0.0.1") },
+            ServerConfig { selfHostedServer },
+            containerConfig,
+            DockerContainer::Udp2RawWireGuard);
+
+        QCOMPARE(vpnConfig.value(configKey::dns1).toString(), QStringLiteral("9.9.9.9"));
+        QCOMPARE(vpnConfig.value(configKey::dns2).toString(), QStringLiteral("149.112.112.112"));
+
+        const QJsonObject wgConfig = vpnConfig.value(ProtocolUtils::key_proto_config_data(Proto::WireGuard)).toObject();
+        const QString nativeConfig = wgConfig.value(configKey::config).toString();
+        QVERIFY(nativeConfig.contains(QStringLiteral("DNS = 9.9.9.9, 149.112.112.112")));
+        QVERIFY(!nativeConfig.contains(QString::fromLatin1(protocols::dns::amneziaDnsIp)));
+
+        settings.clearSettings();
     }
 
     void testNativeHostServerScriptInvariants()

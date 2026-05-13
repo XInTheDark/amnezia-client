@@ -134,8 +134,16 @@ QJsonObject ConnectionController::createConnectionConfiguration(const QPair<QStr
 
     Proto proto = ContainerUtils::defaultProtocol(container);
 
+    QPair<QString, QString> effectiveDns = dns;
+    if (ContainerUtils::isUdp2RawContainer(container)
+        && effectiveDns.first == protocols::dns::amneziaDnsIp) {
+        effectiveDns.first = m_appSettingsRepository->primaryDns();
+        effectiveDns.second = m_appSettingsRepository->secondaryDns();
+        qWarning() << "UDP2Raw native host does not use AmneziaDNS; using app DNS settings";
+    }
+
     ConnectionSettings connectionSettings = {
-        { dns.first, dns.second },
+        { effectiveDns.first, effectiveDns.second },
         serverConfig.isApiConfig(),
         {
             m_appSettingsRepository->isSitesSplitTunnelingEnabled(),
@@ -159,8 +167,8 @@ QJsonObject ConnectionController::createConnectionConfiguration(const QPair<QStr
     vpnConfiguration.insert(ProtocolUtils::key_proto_config_data(proto), vpnConfigData);
     vpnConfiguration[configKey::vpnProto] = ProtocolUtils::protoToString(proto);
 
-    vpnConfiguration[configKey::dns1] = dns.first;
-    vpnConfiguration[configKey::dns2] = dns.second;
+    vpnConfiguration[configKey::dns1] = effectiveDns.first;
+    vpnConfiguration[configKey::dns2] = effectiveDns.second;
 
     vpnConfiguration[configKey::hostName] = serverConfig.hostName();
     vpnConfiguration[configKey::description] = serverConfig.description();

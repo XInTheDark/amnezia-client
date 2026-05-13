@@ -65,7 +65,7 @@ QString nativePskPath(DockerContainer container)
 
 QHostAddress nextClientAddress(const QList<QHostAddress> &usedIps, const QString &subnetAddress)
 {
-    quint32 candidate = QHostAddress(subnetAddress).toIPv4Address() + 2;
+    quint32 candidate = QHostAddress(subnetAddress.section('/', 0, 0)).toIPv4Address() + 2;
     if (!usedIps.isEmpty()) {
         candidate = usedIps.last().toIPv4Address() + 1;
     }
@@ -323,7 +323,9 @@ ProtocolConfig WireguardConfigurator::createConfig(const ServerCredentials &cred
     clientConfig.serverPublicKey = connData.serverPubKey;
     clientConfig.presharedKey = connData.pskKey;
     clientConfig.clientId = connData.clientPubKey;
-    clientConfig.allowedIps = QStringList { "0.0.0.0/0", "::/0" };
+    clientConfig.allowedIps = ContainerUtils::isUdp2RawContainer(container)
+        ? QStringList { "0.0.0.0/0" }
+        : QStringList { "0.0.0.0/0", "::/0" };
     clientConfig.persistentKeepAlive = "25";
     clientConfig.mtu = mtu;
     clientConfig.isObfuscationEnabled = false;
