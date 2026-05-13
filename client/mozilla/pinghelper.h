@@ -40,11 +40,14 @@ class PingHelper final : public QObject {
   void nextPing();
 
   void pingReceived(quint16 sequence);
+  void switchToDnsPing();
 
  private:
   QHostAddress m_gateway;
   QHostAddress m_source;
   quint16 m_sequence = 0;
+  int m_unansweredPings = 0;
+  bool m_usingDnsPing = false;
 
   class PingSendData {
    public:

@@ -169,11 +169,14 @@ bool WireguardUtilsMacos::addInterface(const InterfaceConfig& config) {
       }
       applyFirewallRules(params);
     }
+    applyIpv6LeakBlockIfNeeded(config);
   }
   return (err == 0);
 }
 
 bool WireguardUtilsMacos::deleteInterface() {
+  removeIpv6LeakBlock();
+
   if (m_rtmonitor) {
     delete m_rtmonitor;
     m_rtmonitor = nullptr;
@@ -196,6 +199,35 @@ bool WireguardUtilsMacos::deleteInterface() {
   KillSwitch::instance()->disableKillSwitch();
 
   return true;
+}
+
+void WireguardUtilsMacos::applyIpv6LeakBlockIfNeeded(const InterfaceConfig& config) {
+  if (!m_rtmonitor || !config.m_deviceIpv6Address.isEmpty() ||
+      !config.m_allowedIPAddressRanges.contains(IPAddress("0.0.0.0/0")) ||
+      config.m_allowedIPAddressRanges.contains(IPAddress("::/0"))) {
+    return;
+  }
+
+  const bool lowHalfBlocked =
+      m_rtmonitor->insertRoute(IPAddress("::/1"), RTF_REJECT);
+  const bool highHalfBlocked =
+      m_rtmonitor->insertRoute(IPAddress("8000::/1"), RTF_REJECT);
+  m_ipv6LeakBlockEnabled = lowHalfBlocked && highHalfBlocked;
+  if (!m_ipv6LeakBlockEnabled) {
+    logger.warning() << "Failed to install IPv6 leak block routes";
+    removeIpv6LeakBlock();
+  }
+}
+
+void WireguardUtilsMacos::removeIpv6LeakBlock() {
+  if (!m_rtmonitor || !m_ipv6LeakBlockEnabled) {
+    m_ipv6LeakBlockEnabled = false;
+    return;
+  }
+
+  m_rtmonitor->deleteRoute(IPAddress("::/1"), RTF_REJECT);
+  m_rtmonitor->deleteRoute(IPAddress("8000::/1"), RTF_REJECT);
+  m_ipv6LeakBlockEnabled = false;
 }
 
 // dummy implementations for now

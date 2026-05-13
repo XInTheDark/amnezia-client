@@ -18,6 +18,7 @@ constexpr uint32_t PING_TIMEOUT_SEC = 1;
 
 // Maximum window size for ping statistics.
 constexpr int PING_STATS_WINDOW = 32;
+constexpr int MAX_UNANSWERED_ICMP_PINGS = 3;
 
 namespace {
 Logger logger("PingHelper");
@@ -43,6 +44,7 @@ void PingHelper::start(const QString& serverIpv4Gateway,
   m_source = QHostAddress(deviceIpv4Address.section('/', 0, 0));
 
   m_pingSender = PingSenderFactory::create(m_source, this);
+  m_usingDnsPing = false;
 
   // Some platforms require root access to send and receive ICMP pings. If
   // we happen to be on one of these unlucky devices, create a DnsPingSender
@@ -50,6 +52,7 @@ void PingHelper::start(const QString& serverIpv4Gateway,
   if (!m_pingSender->isValid()) {
     delete m_pingSender;
     m_pingSender = new DnsPingSender(m_source, this);
+    m_usingDnsPing = true;
   }
   m_pingSender->start();
 
@@ -62,6 +65,7 @@ void PingHelper::start(const QString& serverIpv4Gateway,
 
   // Reset the ping statistics
   m_sequence = 0;
+  m_unansweredPings = 0;
   for (int i = 0; i < PING_STATS_WINDOW; i++) {
     m_pingData[i].timestamp = -1;
     m_pingData[i].latency = -1;
@@ -80,12 +84,29 @@ void PingHelper::stop() {
   }
 
   m_pingTimer.stop();
+  m_unansweredPings = 0;
+  m_usingDnsPing = false;
 }
 
 void PingHelper::nextPing() {
 #ifdef MZ_DEBUG
   logger.debug() << "Sending ping seq:" << m_sequence;
 #endif
+
+  if (!m_usingDnsPing && m_sequence > 0) {
+    const int previousIndex = (m_sequence - 1) % PING_STATS_WINDOW;
+    const PingSendData& previous = m_pingData[previousIndex];
+    if (previous.timestamp > 0 && previous.latency < 0
+        && previous.timestamp < QDateTime::currentMSecsSinceEpoch() - (PING_TIMEOUT_SEC * 1000)) {
+      ++m_unansweredPings;
+    } else if (previous.latency >= 0) {
+      m_unansweredPings = 0;
+    }
+
+    if (m_unansweredPings >= MAX_UNANSWERED_ICMP_PINGS) {
+      switchToDnsPing();
+    }
+  }
 
   // The ICMP sequence number is used to match replies with their originating
   // request, and serves as an index into the circular buffer. Overflows of
@@ -100,6 +121,7 @@ void PingHelper::nextPing() {
 }
 
 void PingHelper::pingReceived(quint16 sequence) {
+  m_unansweredPings = 0;
   int index = sequence % PING_STATS_WINDOW;
   if (m_pingData[index].sequence == sequence) {
     qint64 sendTime = m_pingData[index].timestamp;
@@ -112,6 +134,19 @@ void PingHelper::pingReceived(quint16 sequence) {
                    << "stddev:" << stddev();
 #endif
   }
+}
+
+void PingHelper::switchToDnsPing() {
+  logger.info() << "ICMP ping has no replies; switching to DNS ping";
+  if (m_pingSender) {
+    delete m_pingSender;
+  }
+  m_pingSender = new DnsPingSender(m_source, this);
+  m_pingSender->start();
+  connect(m_pingSender, &PingSender::recvPing, this, &PingHelper::pingReceived,
+          Qt::QueuedConnection);
+  m_usingDnsPing = true;
+  m_unansweredPings = 0;
 }
 
 uint PingHelper::latency() const {

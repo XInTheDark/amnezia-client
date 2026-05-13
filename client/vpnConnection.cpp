@@ -3,6 +3,7 @@
 #include <QDebug>
 #include <QEventLoop>
 #include <QFile>
+#include <QHostAddress>
 #include <QHostInfo>
 #include <QJsonObject>
 #include <QObject>
@@ -40,6 +41,18 @@ namespace
 {
     constexpr int kReconnectTimeoutMs = 45000;
     constexpr int kServiceReplyTimeoutMs = 5000;
+
+    QString firstIpv4Address(const QStringList &addresses)
+    {
+        for (const QString &addressText : addresses) {
+            const QHostAddress address(addressText);
+            if (address.protocol() == QAbstractSocket::IPv4Protocol) {
+                return address.toString();
+            }
+        }
+
+        return {};
+    }
 }
 
 VpnConnection::VpnConnection(SecureServersRepository *serversRepository,
@@ -431,7 +444,12 @@ void VpnConnection::startPingStatsIfReady()
         return;
     }
 
-    const QString gateway = !m_tunnelGateway.isEmpty() ? m_tunnelGateway : m_vpnProtocol->vpnGateway();
+    QString gateway = !m_tunnelGateway.isEmpty() ? m_tunnelGateway : m_vpnProtocol->vpnGateway();
+    if (ContainerUtils::isUdp2RawContainer(m_currentContainer)) {
+        gateway = firstIpv4Address({ m_vpnConfiguration.value(configKey::dns1).toString(),
+                                     m_vpnConfiguration.value(configKey::dns2).toString(),
+                                     QStringLiteral("1.1.1.1") });
+    }
     const QString localAddress = !m_tunnelLocalAddress.isEmpty() ? m_tunnelLocalAddress : m_vpnProtocol->vpnLocalAddress();
 
     if (gateway.isEmpty() || localAddress.isEmpty()) {
