@@ -8,6 +8,7 @@
 #include "core/models/protocols/awgProtocolConfig.h"
 #include "core/models/protocols/wireGuardProtocolConfig.h"
 #include "core/controllers/connectionController.h"
+#include "core/installers/awgInstaller.h"
 #include "core/repositories/secureAppSettingsRepository.h"
 #include "core/repositories/secureServersRepository.h"
 #include "core/protocols/protocolUtils.h"
@@ -101,6 +102,7 @@ private slots:
     void testAwgUdp2RawJsonRoundTrip()
     {
         AwgProtocolConfig protocolConfig;
+        protocolConfig.serverConfig.subnetAddress = QString::fromLatin1(protocols::udp2raw::defaultAwgSubnetAddress);
         protocolConfig.serverConfig.port = QStringLiteral("51820");
         protocolConfig.serverConfig.protocolVersion = protocols::awg::awgV2;
         protocolConfig.serverConfig.udp2rawPublicPort = QStringLiteral("8443");
@@ -131,6 +133,7 @@ private slots:
 
         const auto *restoredProtocol = restored.getAwgProtocolConfig();
         QVERIFY(restoredProtocol);
+        QCOMPARE(restoredProtocol->serverConfig.subnetAddress, QStringLiteral("10.8.2.0"));
         QCOMPARE(restoredProtocol->serverConfig.port, QStringLiteral("51820"));
         QCOMPARE(restoredProtocol->serverConfig.protocolVersion, protocols::awg::awgV2);
         QCOMPARE(restoredProtocol->serverConfig.udp2rawPublicPort, QStringLiteral("8443"));
@@ -143,6 +146,17 @@ private slots:
         QCOMPARE(restoredProtocol->clientConfig->port, 3333);
         QCOMPARE(restoredProtocol->clientConfig->udp2rawRemoteHost, QStringLiteral("64.235.43.101"));
         QCOMPARE(restoredProtocol->clientConfig->udp2rawRemotePort, QStringLiteral("8443"));
+    }
+
+    void testAwgUdp2RawUsesSeparateDefaultSubnet()
+    {
+        AwgInstaller installer;
+        const ContainerConfig containerConfig = installer.generateConfig(DockerContainer::Udp2RawAwg, 8445, TransportProto::Tcp);
+
+        const auto *protocolConfig = containerConfig.getAwgProtocolConfig();
+        QVERIFY(protocolConfig);
+        QCOMPARE(protocolConfig->serverConfig.subnetAddress, QString::fromLatin1(protocols::udp2raw::defaultAwgSubnetAddress));
+        QVERIFY(protocolConfig->serverConfig.subnetAddress != QString::fromLatin1(protocols::wireguard::defaultSubnetAddress));
     }
 
     void testUdp2RawConnectionDoesNotUseAmneziaDns()

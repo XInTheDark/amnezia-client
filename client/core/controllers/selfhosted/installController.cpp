@@ -97,13 +97,39 @@ namespace
         return QHostAddress(subnetIpv4 + 1).toString();
     }
 
+    bool isLegacyUdp2RawAwgSubnet(DockerContainer container, const QString &subnetAddress)
+    {
+        if (container != DockerContainer::Udp2RawAwg) {
+            return false;
+        }
+        return subnetAddress.section('/', 0, 0) == QString::fromLatin1(protocols::wireguard::defaultSubnetAddress);
+    }
+
+    bool migrateLegacyUdp2RawAwgSubnet(DockerContainer container, ContainerConfig &containerConfig)
+    {
+        if (container != DockerContainer::Udp2RawAwg) {
+            return false;
+        }
+
+        auto *awgConfig = containerConfig.getAwgProtocolConfig();
+        if (!awgConfig || !isLegacyUdp2RawAwgSubnet(container, awgConfig->serverConfig.subnetAddress)) {
+            return false;
+        }
+
+        awgConfig->serverConfig.subnetAddress = QString::fromLatin1(protocols::udp2raw::defaultAwgSubnetAddress);
+        containerConfig.protocolConfig.clearClientConfig();
+        return true;
+    }
+
     bool hasReservedUdp2RawClientAddress(DockerContainer container, const ContainerConfig &containerConfig)
     {
         if (!ContainerUtils::isUdp2RawContainer(container) || !containerConfig.protocolConfig.hasClientConfig()) {
             return false;
         }
 
-        QString subnetAddress = protocols::wireguard::defaultSubnetAddress;
+        QString subnetAddress = container == DockerContainer::Udp2RawAwg
+                ? QString::fromLatin1(protocols::udp2raw::defaultAwgSubnetAddress)
+                : QString::fromLatin1(protocols::wireguard::defaultSubnetAddress);
         QString clientIp;
         int implementationVersion = 0;
 
@@ -278,7 +304,15 @@ ErrorCode InstallController::validateAndPrepareConfig(int serverIndex)
         return cfg.protocolConfig.hasClientConfig();
     };
 
-    if (hasReservedUdp2RawClientAddress(container, containerConfig)) {
+    if (migrateLegacyUdp2RawAwgSubnet(container, containerConfig)) {
+        qWarning() << "Migrating UDP2Raw AWG away from legacy shared subnet";
+        clearCachedProfile(serverIndex, container);
+        ErrorCode setupError = setupContainer(credentials, container, containerConfig, true);
+        if (setupError != ErrorCode::NoError) {
+            return setupError;
+        }
+        m_serversRepository->setContainerConfig(serverIndex, container, containerConfig);
+    } else if (hasReservedUdp2RawClientAddress(container, containerConfig)) {
         qWarning() << "Regenerating stale UDP2Raw client profile";
         clearCachedProfile(serverIndex, container);
         containerConfig.protocolConfig.clearClientConfig();

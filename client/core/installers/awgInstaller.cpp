@@ -232,6 +232,9 @@ ErrorCode AwgInstaller::extractConfigFromContainer(DockerContainer container, co
                 if (env.value(QStringLiteral("UDP2RAW_IMPL_VERSION")).toInt() != protocols::udp2raw::nativeHostImplementationVersion) {
                     return ErrorCode::ServerContainerMissingError;
                 }
+                if (env.value(QStringLiteral("AWG_SUBNET_IP")).section('/', 0, 0) == QString::fromLatin1(protocols::wireguard::defaultSubnetAddress)) {
+                    return ErrorCode::ServerContainerMissingError;
+                }
                 awgConfig->serverConfig.udp2rawPublicPort = env.value(QStringLiteral("UDP2RAW_PUBLIC_PORT"));
                 awgConfig->serverConfig.udp2rawInternalPort = env.value(QStringLiteral("UDP2RAW_INTERNAL_PORT"));
                 awgConfig->serverConfig.port = awgConfig->serverConfig.udp2rawInternalPort;

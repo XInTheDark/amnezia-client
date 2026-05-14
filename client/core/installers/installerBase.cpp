@@ -72,6 +72,7 @@ ContainerConfig InstallerBase::createBaseConfig(DockerContainer container, int p
         case Proto::Awg: {
             AwgProtocolConfig awgConfig;
             if (container == DockerContainer::Udp2RawAwg) {
+                awgConfig.serverConfig.subnetAddress = protocols::udp2raw::defaultAwgSubnetAddress;
                 awgConfig.serverConfig.udp2rawPublicPort = portStr;
                 awgConfig.serverConfig.udp2rawInternalPort = randomInternalPort(portStr, protocols::awg::defaultPort);
                 awgConfig.serverConfig.udp2rawPassword = Utils::getRandomString(protocols::udp2raw::defaultPasswordLength);

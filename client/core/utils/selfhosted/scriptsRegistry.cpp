@@ -238,8 +238,11 @@ amnezia::ScriptVars amnezia::genAwgVars(const ContainerConfig &containerConfig)
     
     if (auto* awgProtocolConfig = containerConfig.getAwgProtocolConfig()) {
         const AwgServerConfig& config = awgProtocolConfig->serverConfig;
+        const QString defaultSubnet = containerConfig.container == DockerContainer::Udp2RawAwg
+                ? QString::fromLatin1(protocols::udp2raw::defaultAwgSubnetAddress)
+                : QString::fromLatin1(protocols::wireguard::defaultSubnetAddress);
         
-        vars.append({ { "$AWG_SUBNET_IP", config.subnetAddress.isEmpty() ? protocols::wireguard::defaultSubnetAddress : config.subnetAddress } });
+        vars.append({ { "$AWG_SUBNET_IP", config.subnetAddress.isEmpty() ? defaultSubnet : config.subnetAddress } });
         vars.append({ { "$WIREGUARD_SUBNET_CIDR", config.subnetCidr.isEmpty() ? protocols::wireguard::defaultSubnetCidr : config.subnetCidr } });
         vars.append({ { "$AWG_SERVER_PORT", config.port.isEmpty() ? protocols::awg::defaultPort : config.port } });
         vars.append({ { "$UDP2RAW_PUBLIC_PORT", config.udp2rawPublicPort.isEmpty() ? protocols::udp2raw::defaultPublicPort : config.udp2rawPublicPort } });

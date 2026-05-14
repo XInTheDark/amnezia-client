@@ -129,6 +129,7 @@ namespace amnezia
             constexpr int nativeHostImplementationVersion = 2;
             constexpr char defaultMtu[] = "1280";
             constexpr char defaultPublicPort[] = "8443";
+            constexpr char defaultAwgSubnetAddress[] = "10.8.2.0";
             constexpr char defaultRawMode[] = "faketcp";
             constexpr int defaultPasswordLength = 32;
             constexpr char appleSiliconHomebrewPath[] = "/opt/homebrew/opt/udp2raw-multiplatform/bin/udp2raw_mp";

@@ -202,7 +202,9 @@ WireguardConfigurator::ConnectionData WireguardConfigurator::prepareWireguardCon
     }
     auto ips = getIpsFromConf(stdOut);
 
-    QString subnetAddress = protocols::wireguard::defaultSubnetAddress;
+    QString subnetAddress = container == DockerContainer::Udp2RawAwg
+            ? QString::fromLatin1(protocols::udp2raw::defaultAwgSubnetAddress)
+            : QString::fromLatin1(protocols::wireguard::defaultSubnetAddress);
     if (serverConfig && !serverConfig->subnetAddress.isEmpty()) {
         subnetAddress = serverConfig->subnetAddress;
     } else if (awgServerConfig && !awgServerConfig->subnetAddress.isEmpty()) {
