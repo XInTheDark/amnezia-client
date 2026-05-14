@@ -307,6 +307,9 @@ ProtocolConfig WireguardConfigurator::createConfig(const ServerCredentials &cred
     } else if (awgClientConfig && !awgClientConfig->mtu.isEmpty()) {
         mtu = awgClientConfig->mtu;
     }
+    if (ContainerUtils::isUdp2RawContainer(container)) {
+        mtu = protocols::udp2raw::defaultMtu;
+    }
     
     WireGuardProtocolConfig protocolConfig;
     if (wireguardServerConfig) {

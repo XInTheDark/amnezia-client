@@ -51,13 +51,16 @@ class WireguardUtilsMacos final : public WireguardUtils {
   QString uapiCommand(const QString& command);
   static int uapiErrno(const QString& command);
   QString waitForTunnelName(const QString& filename);
-  void applyIpv6LeakBlockIfNeeded(const InterfaceConfig& config);
+  void applyIpv6LeakBlock();
   void removeIpv6LeakBlock();
+  static bool isIpv4DefaultRoute(const IPAddress& prefix);
+  static bool isIpv6DefaultRoute(const IPAddress& prefix);
 
   QString m_ifname;
   QProcess m_tunnel;
   MacosRouteMonitor* m_rtmonitor = nullptr;
   bool m_ipv6LeakBlockEnabled = false;
+  bool m_ipv6DefaultRouteEnabled = false;
 };
 
 #endif  // WIREGUARDUTILSMACOS_H

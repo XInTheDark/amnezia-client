@@ -25,6 +25,8 @@ class MacosRouteMonitor final : public QObject {
   ~MacosRouteMonitor();
 
   bool insertRoute(const IPAddress& prefix, int flags = 0);
+  bool insertRejectRoute(const IPAddress& prefix);
+  bool deleteRejectRoute(const IPAddress& prefix);
   bool deleteRoute(const IPAddress& prefix, int flags = 0);
   int interfaceFlags() { return m_ifflags; }
 

@@ -179,7 +179,9 @@ void LocalSocketController::activate(const QJsonObject &rawConfig) {
   json.insert("serverPskKey", wgConfig.value(amnezia::configKey::pskKey));
   json.insert("serverIpv4AddrIn", endpointHost);
   //  json.insert("serverIpv6AddrIn", QJsonValue(hop.m_server.ipv6AddrIn()));
-  json.insert("deviceMTU", wgConfig.value(amnezia::configKey::mtu));
+  json.insert("deviceMTU", isUdp2Raw
+      ? QString::fromLatin1(amnezia::protocols::udp2raw::defaultMtu)
+      : wgConfig.value(amnezia::configKey::mtu));
 
   json.insert("serverPort", wgConfig.value(amnezia::configKey::port).toInt());
   json.insert("serverIpv4Gateway", transportHost);

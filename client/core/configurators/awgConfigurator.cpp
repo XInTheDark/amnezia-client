@@ -87,6 +87,9 @@ ProtocolConfig AwgConfigurator::createConfig(const ServerCredentials &credential
     if (clientConfig && !clientConfig->mtu.isEmpty()) {
         mtu = clientConfig->mtu;
     }
+    if (serverConfig && !serverConfig->udp2rawPublicPort.isEmpty()) {
+        mtu = protocols::udp2raw::defaultMtu;
+    }
     newClientConfig.mtu = mtu;
     
     newClientConfig.junkPacketCount = configMap.value(configKey::junkPacketCount);

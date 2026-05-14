@@ -505,6 +505,42 @@ bool MacosRouteMonitor::insertRoute(const IPAddress& prefix, int flags) {
   return rtmSendRoute(RTM_ADD, prefix, m_ifindex, &datalink, flags);
 }
 
+bool MacosRouteMonitor::insertRejectRoute(const IPAddress& prefix) {
+  if (rtmSendRoute(RTM_ADD, prefix, 0, nullptr, RTF_REJECT)) {
+    return true;
+  }
+
+  const QStringList args {
+      QStringLiteral("-n"), QStringLiteral("add"), QStringLiteral("-inet6"),
+      QStringLiteral("-reject"), prefix.toString(), QStringLiteral("::1")
+  };
+  const int exitCode = QProcess::execute(QStringLiteral("/sbin/route"), args);
+  if (exitCode == 0) {
+    return true;
+  }
+
+  logger.warning() << "Failed to add IPv6 reject route via route(8), exit code:" << exitCode;
+  return false;
+}
+
+bool MacosRouteMonitor::deleteRejectRoute(const IPAddress& prefix) {
+  if (rtmSendRoute(RTM_DELETE, prefix, 0, nullptr, RTF_REJECT)) {
+    return true;
+  }
+
+  const QStringList args {
+      QStringLiteral("-n"), QStringLiteral("delete"), QStringLiteral("-inet6"),
+      prefix.toString()
+  };
+  const int exitCode = QProcess::execute(QStringLiteral("/sbin/route"), args);
+  if (exitCode == 0) {
+    return true;
+  }
+
+  logger.warning() << "Failed to delete IPv6 reject route via route(8), exit code:" << exitCode;
+  return false;
+}
+
 bool MacosRouteMonitor::deleteRoute(const IPAddress& prefix, int flags) {
   return rtmSendRoute(RTM_DELETE, prefix, m_ifindex, nullptr, flags);
 }
