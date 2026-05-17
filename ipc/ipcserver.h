@@ -63,6 +63,7 @@ private:
         QSharedPointer<int> activeConnections = QSharedPointer<int>(new int(0));
         QSharedPointer<bool> remotingEnabled = QSharedPointer<bool>(new bool(false));
         QSharedPointer<bool> processFinished = QSharedPointer<bool>(new bool(false));
+        QSharedPointer<bool> removalScheduled = QSharedPointer<bool>(new bool(false));
     };
 
     QMap<int, ProcessDescriptor> m_processes;

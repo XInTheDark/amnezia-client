@@ -13,6 +13,7 @@
 #include <QRemoteObjectNode>
 #include <QString>
 #include <QStringList>
+#include <QTimer>
 
 #include "killswitch.h"
 #include "logger.h"
@@ -55,9 +56,30 @@ int IpcServer::createPrivilegedProcess()
     auto activeConnections = pd.activeConnections;
     auto remotingEnabled = pd.remotingEnabled;
     auto processFinished = pd.processFinished;
+    auto removalScheduled = pd.removalScheduled;
+
+    auto scheduleDescriptorRemoval = [this, localPid, activeConnections, processFinished, removalScheduled]() {
+        if (*removalScheduled || *activeConnections != 0 || !*processFinished) {
+            return;
+        }
+
+        *removalScheduled = true;
+        QTimer::singleShot(0, this, [this, localPid, activeConnections, processFinished, removalScheduled]() {
+            if (*activeConnections != 0 || !*processFinished) {
+                *removalScheduled = false;
+                return;
+            }
+            if (!m_processes.contains(localPid)) {
+                return;
+            }
+
+            qDebug() << "Removing privileged process descriptor" << localPid;
+            m_processes.remove(localPid);
+        });
+    };
 
     QObject::connect(localServer, &QLocalServer::newConnection, this,
-                     [this, localPid, localServer, serverNode, ipcProcess, activeConnections, remotingEnabled, processFinished]() {
+                     [this, localPid, localServer, serverNode, ipcProcess, activeConnections, remotingEnabled, processFinished, scheduleDescriptorRemoval]() {
         qDebug() << "IpcServer new connection";
         if (!serverNode || !localServer || !ipcProcess) {
             return;
@@ -71,7 +93,7 @@ int IpcServer::createPrivilegedProcess()
 
             ++(*activeConnections);
             QObject::connect(socket, &QLocalSocket::disconnected, this,
-                             [this, localPid, ipcProcess, activeConnections, processFinished]() {
+                             [this, localPid, ipcProcess, activeConnections, processFinished, scheduleDescriptorRemoval]() {
                 *activeConnections = qMax(0, *activeConnections - 1);
                 if (*activeConnections != 0) {
                     return;
@@ -80,8 +102,7 @@ int IpcServer::createPrivilegedProcess()
                     ipcProcess->stopProcess();
                 }
                 if (*processFinished) {
-                    qDebug() << "Removing disconnected privileged process descriptor" << localPid;
-                    m_processes.remove(localPid);
+                    scheduleDescriptorRemoval();
                 }
             });
 
@@ -101,12 +122,9 @@ int IpcServer::createPrivilegedProcess()
     QObject::connect(serverNode, &QRemoteObjectHost::destroyed, this,
                      []() { qDebug() << "QRemoteObjectHost::destroyed"; });
     QObject::connect(ipcProcess, &IpcServerProcess::finished, this,
-                     [this, localPid, activeConnections, processFinished](int, QProcess::ExitStatus) {
+                     [processFinished, scheduleDescriptorRemoval](int, QProcess::ExitStatus) {
         *processFinished = true;
-        if (*activeConnections == 0) {
-            qDebug() << "Removing finished privileged process descriptor" << localPid;
-            m_processes.remove(localPid);
-        }
+        scheduleDescriptorRemoval();
     });
 
     m_processes.insert(localPid, pd);

@@ -304,15 +304,41 @@ ErrorCode InstallController::validateAndPrepareConfig(int serverIndex)
         return cfg.protocolConfig.hasClientConfig();
     };
 
-    if (migrateLegacyUdp2RawAwgSubnet(container, containerConfig)) {
+    auto migrateUdp2RawAwgIfNeeded = [&](DockerContainer candidate, ContainerConfig candidateConfig) -> ErrorCode {
+        if (!migrateLegacyUdp2RawAwgSubnet(candidate, candidateConfig)) {
+            return ErrorCode::NoError;
+        }
+
         qWarning() << "Migrating UDP2Raw AWG away from legacy shared subnet";
-        clearCachedProfile(serverIndex, container);
-        ErrorCode setupError = setupContainer(credentials, container, containerConfig, true);
+        clearCachedProfile(serverIndex, candidate);
+        ErrorCode setupError = setupContainer(credentials, candidate, candidateConfig, true);
         if (setupError != ErrorCode::NoError) {
             return setupError;
         }
-        m_serversRepository->setContainerConfig(serverIndex, container, containerConfig);
-    } else if (hasReservedUdp2RawClientAddress(container, containerConfig)) {
+        m_serversRepository->setContainerConfig(serverIndex, candidate, candidateConfig);
+        if (candidate == container) {
+            containerConfig = candidateConfig;
+        }
+        return ErrorCode::NoError;
+    };
+
+    const auto containers = serverConfigModel.containers();
+    for (auto it = containers.cbegin(); it != containers.cend(); ++it) {
+        if (it.key() == container) {
+            continue;
+        }
+        ErrorCode migrationError = migrateUdp2RawAwgIfNeeded(it.key(), it.value());
+        if (migrationError != ErrorCode::NoError) {
+            return migrationError;
+        }
+    }
+
+    ErrorCode migrationError = migrateUdp2RawAwgIfNeeded(container, containerConfig);
+    if (migrationError != ErrorCode::NoError) {
+        return migrationError;
+    }
+
+    if (hasReservedUdp2RawClientAddress(container, containerConfig)) {
         qWarning() << "Regenerating stale UDP2Raw client profile";
         clearCachedProfile(serverIndex, container);
         containerConfig.protocolConfig.clearClientConfig();
