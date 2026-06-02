@@ -79,6 +79,7 @@ inline QStringList sanitizeArguments(PermittedProcess proc, const QStringList &a
         };
         namedArgs["-k"] = [](const QString& v) { return !v.isEmpty() && !v.contains('\n') && !v.contains('\r'); };
         namedArgs["--raw-mode"] = [](const QString& v) { return v == "faketcp"; };
+        namedArgs["--cipher-mode"] = [](const QString& v) { return v == "xor"; };
         break;
     default:
         //FIXME

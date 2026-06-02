@@ -227,10 +227,10 @@ private slots:
         settings.clearSettings();
     }
 
-    void testUdp2RawConnectionClampsMtu()
+    void testUdp2RawConnectionPreservesExplicitMtu()
     {
         SecureQSettings settings(QStringLiteral("AmneziaVPNTests"),
-                                 QStringLiteral("Udp2RawConnectionClampsMtu"),
+                                 QStringLiteral("Udp2RawConnectionPreservesExplicitMtu"),
                                  this,
                                  false);
         settings.clearSettings();
@@ -283,6 +283,66 @@ private slots:
             DockerContainer::Udp2RawWireGuard);
 
         const QJsonObject wgConfig = vpnConfig.value(ProtocolUtils::key_proto_config_data(Proto::WireGuard)).toObject();
+        QCOMPARE(wgConfig.value(configKey::mtu).toString(), QStringLiteral("1376"));
+
+        settings.clearSettings();
+    }
+
+    void testUdp2RawConnectionUsesDefaultMtuWhenEmpty()
+    {
+        SecureQSettings settings(QStringLiteral("AmneziaVPNTests"),
+                                 QStringLiteral("Udp2RawConnectionUsesDefaultMtuWhenEmpty"),
+                                 this,
+                                 false);
+        settings.clearSettings();
+        SecureServersRepository serversRepository(&settings);
+        SecureAppSettingsRepository appSettingsRepository(&settings);
+
+        VpnConnection vpnConnection(&serversRepository, &appSettingsRepository);
+        ConnectionController controller(&serversRepository, &appSettingsRepository, &vpnConnection);
+
+        WireGuardProtocolConfig protocolConfig;
+        protocolConfig.serverConfig.udp2rawPublicPort = QStringLiteral("8443");
+        protocolConfig.serverConfig.udp2rawInternalPort = QStringLiteral("51820");
+        protocolConfig.serverConfig.udp2rawPassword = QStringLiteral("secret");
+        protocolConfig.serverConfig.udp2rawRawMode = QString::fromLatin1(protocols::udp2raw::defaultRawMode);
+        protocolConfig.serverConfig.udp2rawImplementationVersion = protocols::udp2raw::nativeHostImplementationVersion;
+
+        WireGuardClientConfig clientConfig;
+        clientConfig.hostName = QStringLiteral("142.91.102.48");
+        clientConfig.port = 8443;
+        clientConfig.clientIp = QStringLiteral("10.8.1.2");
+        clientConfig.clientPrivateKey = QStringLiteral("client-private");
+        clientConfig.clientPublicKey = QStringLiteral("client-public");
+        clientConfig.serverPublicKey = QStringLiteral("server-public");
+        clientConfig.presharedKey = QStringLiteral("psk");
+        clientConfig.clientId = QStringLiteral("client-public");
+        clientConfig.allowedIps = QStringList { QStringLiteral("0.0.0.0/0") };
+        clientConfig.udp2rawPublicPort = protocolConfig.serverConfig.udp2rawPublicPort;
+        clientConfig.udp2rawInternalPort = protocolConfig.serverConfig.udp2rawInternalPort;
+        clientConfig.udp2rawPassword = protocolConfig.serverConfig.udp2rawPassword;
+        clientConfig.udp2rawRawMode = protocolConfig.serverConfig.udp2rawRawMode;
+        clientConfig.udp2rawRemoteHost = QStringLiteral("142.91.102.48");
+        clientConfig.udp2rawRemotePort = protocolConfig.serverConfig.udp2rawPublicPort;
+        protocolConfig.setClientConfig(clientConfig);
+
+        ContainerConfig containerConfig;
+        containerConfig.container = DockerContainer::Udp2RawWireGuard;
+        containerConfig.protocolConfig = protocolConfig;
+
+        SelfHostedServerConfig selfHostedServer;
+        selfHostedServer.hostName = QStringLiteral("142.91.102.48");
+        selfHostedServer.description = QStringLiteral("UDP2Raw MTU default test");
+        selfHostedServer.defaultContainer = DockerContainer::Udp2RawWireGuard;
+        selfHostedServer.containers.insert(DockerContainer::Udp2RawWireGuard, containerConfig);
+
+        const QJsonObject vpnConfig = controller.createConnectionConfiguration(
+            { QStringLiteral("1.1.1.1"), QStringLiteral("1.0.0.1") },
+            ServerConfig { selfHostedServer },
+            containerConfig,
+            DockerContainer::Udp2RawWireGuard);
+
+        const QJsonObject wgConfig = vpnConfig.value(ProtocolUtils::key_proto_config_data(Proto::WireGuard)).toObject();
         QCOMPARE(wgConfig.value(configKey::mtu).toString(), QString::fromLatin1(protocols::udp2raw::defaultMtu));
 
         settings.clearSettings();
@@ -301,6 +361,7 @@ private slots:
             QVERIFY(script.contains(QStringLiteral("chown -R root:root \"$BASE_DIR\"")));
             QVERIFY(script.contains(QStringLiteral("-l \"0.0.0.0:$UDP2RAW_PUBLIC_PORT\"")));
             QVERIFY(script.contains(QStringLiteral("-r \"127.0.0.1:$UDP2RAW_INTERNAL_PORT\"")));
+            QVERIFY(script.contains(QStringLiteral("--cipher-mode xor")));
             QVERIFY(script.contains(QStringLiteral("-p tcp --dport \"$UDP2RAW_PUBLIC_PORT\" -j ACCEPT")));
             QVERIFY(script.contains(QStringLiteral("-p udp --dport \"$UDP2RAW_INTERNAL_PORT\" -j DROP")));
             QVERIFY(script.contains(QStringLiteral("net.ipv4.ip_forward=1")));

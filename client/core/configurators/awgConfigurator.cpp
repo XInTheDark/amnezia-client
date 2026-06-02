@@ -83,12 +83,11 @@ ProtocolConfig AwgConfigurator::createConfig(const ServerCredentials &credential
         newClientConfig.udp2rawRemotePort = serverConfig->udp2rawPublicPort;
     }
     
-    QString mtu = protocols::awg::defaultMtu;
+    QString mtu = (serverConfig && !serverConfig->udp2rawPublicPort.isEmpty())
+            ? QString::fromLatin1(protocols::udp2raw::defaultMtu)
+            : QString::fromLatin1(protocols::awg::defaultMtu);
     if (clientConfig && !clientConfig->mtu.isEmpty()) {
         mtu = clientConfig->mtu;
-    }
-    if (serverConfig && !serverConfig->udp2rawPublicPort.isEmpty()) {
-        mtu = protocols::udp2raw::defaultMtu;
     }
     newClientConfig.mtu = mtu;
     

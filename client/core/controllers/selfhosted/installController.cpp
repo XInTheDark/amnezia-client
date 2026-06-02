@@ -121,6 +121,32 @@ namespace
         return true;
     }
 
+    bool hasOutdatedNativeUdp2RawImplementation(DockerContainer container, const ContainerConfig &containerConfig)
+    {
+        if (!ContainerUtils::isUdp2RawContainer(container)) {
+            return false;
+        }
+
+        if (const auto *wgConfig = containerConfig.getWireGuardProtocolConfig()) {
+            return wgConfig->serverConfig.udp2rawImplementationVersion != protocols::udp2raw::nativeHostImplementationVersion;
+        }
+
+        if (const auto *awgConfig = containerConfig.getAwgProtocolConfig()) {
+            return awgConfig->serverConfig.udp2rawImplementationVersion != protocols::udp2raw::nativeHostImplementationVersion;
+        }
+
+        return false;
+    }
+
+    void markNativeUdp2RawImplementationCurrent(ContainerConfig &containerConfig)
+    {
+        if (auto *wgConfig = containerConfig.getWireGuardProtocolConfig()) {
+            wgConfig->serverConfig.udp2rawImplementationVersion = protocols::udp2raw::nativeHostImplementationVersion;
+        } else if (auto *awgConfig = containerConfig.getAwgProtocolConfig()) {
+            awgConfig->serverConfig.udp2rawImplementationVersion = protocols::udp2raw::nativeHostImplementationVersion;
+        }
+    }
+
     bool hasReservedUdp2RawClientAddress(DockerContainer container, const ContainerConfig &containerConfig)
     {
         if (!ContainerUtils::isUdp2RawContainer(container) || !containerConfig.protocolConfig.hasClientConfig()) {
@@ -131,13 +157,11 @@ namespace
                 ? QString::fromLatin1(protocols::udp2raw::defaultAwgSubnetAddress)
                 : QString::fromLatin1(protocols::wireguard::defaultSubnetAddress);
         QString clientIp;
-        int implementationVersion = 0;
 
         if (const auto *wgConfig = containerConfig.getWireGuardProtocolConfig()) {
             subnetAddress = wgConfig->serverConfig.subnetAddress.isEmpty()
                     ? protocols::wireguard::defaultSubnetAddress
                     : wgConfig->serverConfig.subnetAddress;
-            implementationVersion = wgConfig->serverConfig.udp2rawImplementationVersion;
             if (wgConfig->clientConfig.has_value()) {
                 clientIp = wgConfig->clientConfig->clientIp;
             }
@@ -145,14 +169,9 @@ namespace
             subnetAddress = awgConfig->serverConfig.subnetAddress.isEmpty()
                     ? protocols::wireguard::defaultSubnetAddress
                     : awgConfig->serverConfig.subnetAddress;
-            implementationVersion = awgConfig->serverConfig.udp2rawImplementationVersion;
             if (awgConfig->clientConfig.has_value()) {
                 clientIp = awgConfig->clientConfig->clientIp;
             }
-        }
-
-        if (implementationVersion != protocols::udp2raw::nativeHostImplementationVersion) {
-            return true;
         }
 
         clientIp = clientIp.section('/', 0, 0);
@@ -336,6 +355,19 @@ ErrorCode InstallController::validateAndPrepareConfig(int serverIndex)
     ErrorCode migrationError = migrateUdp2RawAwgIfNeeded(container, containerConfig);
     if (migrationError != ErrorCode::NoError) {
         return migrationError;
+    }
+
+    if (hasOutdatedNativeUdp2RawImplementation(container, containerConfig)) {
+        qWarning() << "Updating stale UDP2Raw native host implementation";
+        clearCachedProfile(serverIndex, container);
+        markNativeUdp2RawImplementationCurrent(containerConfig);
+        containerConfig.protocolConfig.clearClientConfig();
+
+        ErrorCode setupError = setupContainer(credentials, container, containerConfig, true);
+        if (setupError != ErrorCode::NoError) {
+            return setupError;
+        }
+        m_serversRepository->setContainerConfig(serverIndex, container, containerConfig);
     }
 
     if (hasReservedUdp2RawClientAddress(container, containerConfig)) {

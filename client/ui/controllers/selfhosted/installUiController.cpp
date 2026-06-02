@@ -207,6 +207,7 @@ void InstallUiController::updateContainer(int serverIndex, int containerIndex, i
     DockerContainer container = static_cast<DockerContainer>(containerIndex);
     
     Proto protocolType = static_cast<Proto>(protocolIndex);
+    ContainerConfig oldContainerConfig = m_serversController->getContainerConfig(serverIndex, container);
     
     ContainerConfig containerConfig;
     containerConfig.container = container;
@@ -250,7 +251,50 @@ void InstallUiController::updateContainer(int serverIndex, int containerIndex, i
     default:
         return;
     }
-    ContainerConfig oldContainerConfig = m_serversController->getContainerConfig(serverIndex, container);
+
+    auto finishLocalClientUpdate = [&]() {
+        m_serversController->updateContainerConfig(serverIndex, container, containerConfig);
+        m_protocolModel->updateModel(containerConfig);
+
+        auto defaultContainer = m_serversController->getServerConfig(serverIndex).defaultContainer();
+        if ((serverIndex == m_serversController->getDefaultServerIndex()) && (container == defaultContainer)) {
+            emit currentContainerUpdated();
+        } else {
+            emit updateContainerFinished(tr("Settings updated successfully"));
+        }
+    };
+
+    if (protocolType == Proto::WireGuard && m_wireGuardConfigModel && m_wireGuardConfigModel->isServerSettingsEqual()) {
+        const auto *oldWgConfig = oldContainerConfig.getWireGuardProtocolConfig();
+        const auto *newWgConfig = containerConfig.getWireGuardProtocolConfig();
+        if (oldWgConfig && newWgConfig) {
+            WireGuardProtocolConfig mergedConfig = *oldWgConfig;
+            if (newWgConfig->clientConfig.has_value()) {
+                mergedConfig.setClientConfig(newWgConfig->clientConfig.value());
+            } else {
+                mergedConfig.clearClientConfig();
+            }
+            containerConfig.protocolConfig = mergedConfig;
+            finishLocalClientUpdate();
+            return;
+        }
+    }
+
+    if (protocolType == Proto::Awg && m_awgConfigModel && m_awgConfigModel->isServerSettingsEqual()) {
+        const auto *oldAwgConfig = oldContainerConfig.getAwgProtocolConfig();
+        const auto *newAwgConfig = containerConfig.getAwgProtocolConfig();
+        if (oldAwgConfig && newAwgConfig) {
+            AwgProtocolConfig mergedConfig = *oldAwgConfig;
+            if (newAwgConfig->clientConfig.has_value()) {
+                mergedConfig.setClientConfig(newAwgConfig->clientConfig.value());
+            } else {
+                mergedConfig.clearClientConfig();
+            }
+            containerConfig.protocolConfig = mergedConfig;
+            finishLocalClientUpdate();
+            return;
+        }
+    }
 
     ErrorCode errorCode = m_installController->updateContainer(serverIndex, container, oldContainerConfig, containerConfig);
 
@@ -490,4 +534,3 @@ void InstallUiController::updateProtocolConfigModel(int serverIndex, int contain
     default: break;
     }
 }
-

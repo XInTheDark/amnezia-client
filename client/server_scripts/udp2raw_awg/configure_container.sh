@@ -229,6 +229,7 @@ udp2raw -s \
   -r "127.0.0.1:$UDP2RAW_INTERNAL_PORT" \
   -k "$UDP2RAW_PASSWORD" \
   --raw-mode "$UDP2RAW_RAW_MODE" \
+  --cipher-mode xor \
   -a &
 echo "$!" > "$BASE_DIR/udp2raw.pid"
 wait "$(cat "$BASE_DIR/udp2raw.pid")"

@@ -222,7 +222,9 @@ void AwgConfigModel::applyDefaultsToServerConfig(amnezia::AwgServerConfig& confi
 void AwgConfigModel::applyDefaultsToClientConfig(amnezia::AwgClientConfig& config)
 {
     if (config.mtu.isEmpty()) {
-        config.mtu = protocols::awg::defaultMtu;
+        config.mtu = ContainerUtils::isUdp2RawContainer(m_container)
+            ? QString::fromLatin1(protocols::udp2raw::defaultMtu)
+            : QString::fromLatin1(protocols::awg::defaultMtu);
     }
     if (config.junkPacketCount.isEmpty()) {
         config.junkPacketCount = m_protocolConfig.serverConfig.junkPacketCount.isEmpty() 

@@ -157,10 +157,9 @@ QJsonObject ConnectionController::createConnectionConfiguration(const QPair<QStr
 
     QJsonObject vpnConfigData = processedConfig.getClientConfigJson();
     if (ContainerUtils::isAwgContainer(container) || ContainerUtils::isWireGuardLikeContainer(container)) {
-        if (ContainerUtils::isUdp2RawContainer(container)) {
-            vpnConfigData[configKey::mtu] = protocols::udp2raw::defaultMtu;
-        } else if (vpnConfigData[configKey::mtu].toString().isEmpty()) {
+        if (vpnConfigData[configKey::mtu].toString().isEmpty()) {
             vpnConfigData[configKey::mtu] =
+                    ContainerUtils::isUdp2RawContainer(container) ? protocols::udp2raw::defaultMtu :
                     ContainerUtils::isAwgContainer(container) ? protocols::awg::defaultMtu :
                     protocols::wireguard::defaultMtu;
         }

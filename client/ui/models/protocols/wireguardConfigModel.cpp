@@ -66,7 +66,9 @@ QVariant WireGuardConfigModel::data(const QModelIndex &index, int role) const
         if (m_protocolConfig.clientConfig.has_value()) {
             return m_protocolConfig.clientConfig->mtu;
         }
-        return QString(protocols::wireguard::defaultMtu);
+        return ContainerUtils::isUdp2RawContainer(m_container)
+            ? QString::fromLatin1(protocols::udp2raw::defaultMtu)
+            : QString::fromLatin1(protocols::wireguard::defaultMtu);
     }
     case Roles::Udp2RawPasswordRole: return m_protocolConfig.serverConfig.udp2rawPassword;
     case Roles::Udp2RawRawModeRole: return m_protocolConfig.serverConfig.udp2rawRawMode;
@@ -127,7 +129,9 @@ void WireGuardConfigModel::applyDefaultsToServerConfig(amnezia::WireGuardServerC
 void WireGuardConfigModel::applyDefaultsToClientConfig(amnezia::WireGuardClientConfig& config)
 {
     if (config.mtu.isEmpty()) {
-        config.mtu = protocols::wireguard::defaultMtu;
+        config.mtu = ContainerUtils::isUdp2RawContainer(m_container)
+            ? QString::fromLatin1(protocols::udp2raw::defaultMtu)
+            : QString::fromLatin1(protocols::wireguard::defaultMtu);
     }
 }
 

@@ -303,14 +303,13 @@ ProtocolConfig WireguardConfigurator::createConfig(const ServerCredentials &cred
     config.replace("$WIREGUARD_SERVER_PUBLIC_KEY", connData.serverPubKey);
     config.replace("$WIREGUARD_PSK", connData.pskKey);
 
-    QString mtu = protocols::wireguard::defaultMtu;
+    QString mtu = ContainerUtils::isUdp2RawContainer(container)
+            ? QString::fromLatin1(protocols::udp2raw::defaultMtu)
+            : QString::fromLatin1(protocols::wireguard::defaultMtu);
     if (wireguardClientConfig && !wireguardClientConfig->mtu.isEmpty()) {
         mtu = wireguardClientConfig->mtu;
     } else if (awgClientConfig && !awgClientConfig->mtu.isEmpty()) {
         mtu = awgClientConfig->mtu;
-    }
-    if (ContainerUtils::isUdp2RawContainer(container)) {
-        mtu = protocols::udp2raw::defaultMtu;
     }
     
     WireGuardProtocolConfig protocolConfig;

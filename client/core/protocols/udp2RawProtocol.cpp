@@ -176,7 +176,8 @@ ErrorCode Udp2RawProtocol::prepareUdp2Raw()
                            "-l", QString("127.0.0.1:%1").arg(localPort),
                            "-r", QString("%1:%2").arg(remoteIp, remotePort),
                            "-k", password,
-                           "--raw-mode", rawMode };
+                           "--raw-mode", rawMode,
+                           "--cipher-mode", "xor" };
 
     qInfo().noquote() << QString("UDP2Raw stage: prepared local udp2raw_mp 127.0.0.1:%1 -> %2:%3")
                              .arg(localPort)
