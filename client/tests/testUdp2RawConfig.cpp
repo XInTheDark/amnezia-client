@@ -362,8 +362,6 @@ private slots:
             QVERIFY(script.contains(QStringLiteral("-l \"0.0.0.0:$UDP2RAW_PUBLIC_PORT\"")));
             QVERIFY(script.contains(QStringLiteral("-r \"127.0.0.1:$UDP2RAW_INTERNAL_PORT\"")));
             QVERIFY(script.contains(QStringLiteral("--cipher-mode xor")));
-            QVERIFY(script.contains(QStringLiteral("-p tcp --dport \"$UDP2RAW_PUBLIC_PORT\" -j ACCEPT")));
-            QVERIFY(script.contains(QStringLiteral("-p udp --dport \"$UDP2RAW_INTERNAL_PORT\" -j DROP")));
             QVERIFY(script.contains(QStringLiteral("net.ipv4.ip_forward=1")));
             QVERIFY(script.contains(QStringLiteral("net.ipv4.conf.all.rp_filter=0")));
             QVERIFY(script.contains(QStringLiteral("net.ipv4.conf.default.rp_filter=0")));
@@ -381,8 +379,16 @@ private slots:
 
         QVERIFY(wgConfigure.contains(QStringLiteral("IFACE=\"amnwg0\"")));
         QVERIFY(wgConfigure.contains(QStringLiteral("Address = $SERVER_INTERFACE_IP/$SUBNET_CIDR")));
+        QVERIFY(wgConfigure.contains(QStringLiteral("WG_QUICK_CONFIG_FILE=\"/etc/wireguard/$IFACE.conf\"")));
+        QVERIFY(wgConfigure.contains(QStringLiteral("PostUp = iptables -A INPUT -p tcp --dport $PUBLIC_PORT -j ACCEPT")));
+        QVERIFY(wgConfigure.contains(QStringLiteral("PostDown = iptables -D INPUT -p tcp --dport $PUBLIC_PORT -j ACCEPT")));
+        QVERIFY(wgConfigure.contains(QStringLiteral("wg-quick@$UDP2RAW_INTERFACE.service")));
+        QVERIFY(wgConfigure.contains(QStringLiteral("ln -sfn \"$WG_QUICK_CONFIG_FILE\" \"$CONFIG_FILE\"")));
+        QVERIFY(!wgConfigure.contains(QStringLiteral("wg-quick up \"$CONFIG_FILE\"")));
         QVERIFY(awgConfigure.contains(QStringLiteral("IFACE=\"amnawg0\"")));
         QVERIFY(awgConfigure.contains(QStringLiteral("Address = $SERVER_INTERFACE_IP/$SUBNET_CIDR")));
+        QVERIFY(awgConfigure.contains(QStringLiteral("-p tcp --dport \"$UDP2RAW_PUBLIC_PORT\" -j ACCEPT")));
+        QVERIFY(awgConfigure.contains(QStringLiteral("-p udp --dport \"$UDP2RAW_INTERNAL_PORT\" -j DROP")));
         QVERIFY(removeScript.contains(QStringLiteral("sudo test -x /opt/amnezia/$CONTAINER_NAME/remove.sh")));
         QVERIFY(removeScript.contains(QStringLiteral("exit 0")));
     }

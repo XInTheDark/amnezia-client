@@ -126,7 +126,7 @@ namespace amnezia
 
         namespace udp2raw
         {
-            constexpr int nativeHostImplementationVersion = 3;
+            constexpr int nativeHostImplementationVersion = 4;
             constexpr char defaultMtu[] = "1280";
             constexpr char defaultPublicPort[] = "8443";
             constexpr char defaultAwgSubnetAddress[] = "10.8.2.0";
